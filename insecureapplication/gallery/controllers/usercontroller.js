@@ -35,6 +35,7 @@ function createProfile(req, res) {
       // register user object
       user = new User({
         username: req.body.username,
+        name: req.body.username,
         email: req.body.email,
       }),
       // its password

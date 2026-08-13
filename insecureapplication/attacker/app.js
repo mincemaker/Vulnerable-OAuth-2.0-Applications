@@ -6,7 +6,20 @@ const path = require('path');
 const request = require('request');
 const gallery = require('./config/gallery.json');
 const photoprint = require('./config/photoprint.json');
+let galleryConfig = JSON.parse(JSON.stringify(gallery));
+let photoprintConfig = JSON.parse(JSON.stringify(photoprint));
 
+if (process.env.GALLERY_URL) {
+  galleryConfig.oauth.auth.tokenHost = process.env.GALLERY_URL;
+}
+if (process.env.CLIENT_ID) {
+  photoprintConfig.oauth.client.id = process.env.CLIENT_ID;
+  galleryConfig.oauth.client.id = process.env.CLIENT_ID;
+}
+if (process.env.CLIENT_SECRET) {
+  photoprintConfig.oauth.client.secret = process.env.CLIENT_SECRET;
+  galleryConfig.oauth.client.secret = process.env.CLIENT_SECRET;
+}
 
 let app = express();
 
@@ -14,7 +27,7 @@ app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({extended: false}));
 app.use(cookieParser());
 app.use(expressSession({
-  secret: 'changethistoconfigfile', //insecure
+  secret: process.env.SESSION_SECRET || 'changethistoconfigfile', // externalized via env
   resave: false,
   saveUninitialized: false
 }));

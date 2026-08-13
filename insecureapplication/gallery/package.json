@@ -8,7 +8,6 @@
   },
   "dependencies": {
     "amdefine": "^1.0.1",
-    "array-set": "^0.1.2",
     "connect-ensure-login": "^0.1.1",
     "cookie-parser": "^1.4.3",
     "errorhandler": "^1.5.0",

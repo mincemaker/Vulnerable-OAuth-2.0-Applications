@@ -1,0 +1,11 @@
+# Sample mise environment configuration for Vulnerable OAuth 2.0 Applications
+# Copy this file to `mise.toml` and fill in your environment variables.
+
+[env]
+CLIENT_ID = "photoprint"
+CLIENT_SECRET = "secret"
+SESSION_SECRET = "changethistoconfigfile"
+GALLERY_URL = "http://gallery:3005"
+GALLERY_BROWSER_URL = "http://gallery.127.0.0.1.nip.io:3005"
+PHOTOPRINT_BROWSER_URL = "http://photoprint.127.0.0.1.nip.io:3000"
+ATTACKER_BROWSER_URL = "http://attacker.127.0.0.1.nip.io:1337"

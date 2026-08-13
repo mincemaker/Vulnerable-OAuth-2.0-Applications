@@ -7,14 +7,25 @@ const oauth2 = require('simple-oauth2');
 const gallery = require('./config/gallery.json');
 const RestClient = require('node-rest-client').Client;
 
+let galleryConfig = JSON.parse(JSON.stringify(gallery));
+if (process.env.GALLERY_URL) {
+  galleryConfig.oauth.auth.tokenHost = process.env.GALLERY_URL;
+}
+if (process.env.CLIENT_ID) {
+  galleryConfig.oauth.client.id = process.env.CLIENT_ID;
+}
+if (process.env.CLIENT_SECRET) {
+  galleryConfig.oauth.client.secret = process.env.CLIENT_SECRET;
+}
+
+let client = oauth2.create(galleryConfig.oauth);
 let app = express();
-let client = oauth2.create(gallery.oauth);
 
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({extended: false}));
 app.use(cookieParser());
 app.use(expressSession({
-  secret: 'changethistoconfigfile', // insecure
+  secret: process.env.SESSION_SECRET || 'changethistoconfigfile', // externalized via env
   resave: false,
   saveUninitialized: false,
 }));
@@ -31,10 +42,20 @@ app.get('/', function(req, res) {
 });
 
 app.post('/photoprint', function(req, res) {
+  let redirectUri = req.protocol + '://' + req.get('Host') + '/callback';
   let authorizationUrl = client.authorizationCode.authorizeURL({
-    redirect_uri: req.protocol + '://' + req.get('Host') + '/callback',
+    redirect_uri: redirectUri,
     scope: gallery.scope,
   });
+
+  let browserHost = process.env.GALLERY_BROWSER_URL || (req.protocol + '://' + req.get('Host').replace(/^photoprint/, 'gallery').replace(/:3000$/, ':3005'));
+  if (process.env.GALLERY_BROWSER_URL) {
+    authorizationUrl = authorizationUrl.replace(galleryConfig.oauth.auth.tokenHost, process.env.GALLERY_BROWSER_URL);
+  } else if (!req.get('Host').startsWith('photoprint:')) {
+    // nip.io または localhost 等での自動置き換え
+    authorizationUrl = authorizationUrl.replace(galleryConfig.oauth.auth.tokenHost, browserHost);
+  }
+
   res.redirect(authorizationUrl);
 });
 
