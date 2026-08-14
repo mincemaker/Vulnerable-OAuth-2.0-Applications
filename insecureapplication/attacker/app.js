@@ -39,8 +39,31 @@ app.set('view engine', 'pug');
 //serve content from public directory
 app.use(express.static(path.join(__dirname, 'public')));
 
+// galleryBrowserBase resolves a browser-reachable base URL for gallery from
+// whatever Host header the request arrived with, mirroring
+// photoprint/app.js's authorizationUrl rewrite (44-60). This works
+// regardless of which wildcard-DNS scheme (nip.io, xip.io, ...) or
+// localhost/IP a browser is using, since it derives from the incoming Host
+// rather than a hardcoded domain.
+function galleryBrowserBase(req) {
+  if (process.env.GALLERY_BROWSER_URL) {
+    return process.env.GALLERY_BROWSER_URL;
+  }
+  const host = req.get('host') || '';
+  if (host.startsWith('attacker:')) {
+    // Docker-internal access: gallery resolves fine by its internal DNS name.
+    return galleryConfig.oauth.auth.tokenHost;
+  }
+  return req.protocol + '://' + host.replace(/^attacker/, 'gallery').replace(/:1337$/, ':3005');
+}
+
 app.get('/', function(req, res){
-  res.render('index', {});
+  const galleryBrowserHost = galleryBrowserBase(req);
+  const selfCallback = req.protocol + '://' + req.get('host') + '/callback';
+  res.render('index', {
+    stealCodeUrl: galleryBrowserHost + '/oauth/authorize?response_type=code&redirect_uri=' + encodeURIComponent(selfCallback) + '&scope=view_gallery&client_id=photoprint',
+    openRedirectUrl: galleryBrowserHost + '/oauth/authorize?response_type=code&redirect_uri=' + encodeURIComponent('http://www.example.com') + '&scope=view_gallery&client_id=photoprint',
+  });
 });
 
 app.get('/callback', function(req, res){
@@ -123,7 +146,6 @@ async function getPictureUrls2(access_token) {
       "Accept": "application/json"
     },
     'url':gallery.oauth.auth.tokenHost + gallery.photos + '?access_token=' + access_token
-    //'url':'http://gallery:3005/photos/me?access_token=' + access_token
   };
   return await makeRequest(options2);
 }
@@ -152,7 +174,7 @@ app.post('/exchangewithothercreds', async function(req, res){
     var obj = JSON.parse(response);
     images = await getPictureUrls(obj.access_token);
     console.log(images);
-    res.render('exchangewithothercreds', {code: code, clientid: clientid, basepath:'http://gallery:3005/photos/me/', secret:secret, access_token:obj.access_token, images:images});
+    res.render('exchangewithothercreds', {code: code, clientid: clientid, basepath: galleryBrowserBase(req) + '/photos/me/', secret:secret, access_token:obj.access_token, images:images});
 
   }catch (error) {
     console.error(error);

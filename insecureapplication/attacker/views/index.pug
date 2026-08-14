@@ -5,18 +5,19 @@ block content
     h2 Attacks
     h3 Unvalidated Redirect URL in authorization endpoint
     ul
-      li 
-        | Steal authorization code: Please click 
-        | <a href="http://gallery:3005/oauth/authorize?response_type=code&redirect_uri=http%3A%2F%2Fattacker%3A1337%2Fcallback&scope=view_gallery&client_id=photoprint">here</a>
+      li
+        | Steal authorization code: Please click
+        a(href=stealCodeUrl) here
         | .
-      li 
-        | Open redirect to synopsys.com if clients are auto-approved: Please click 
-        | <a href="http://gallery:3005/oauth/authorize?response_type=code&redirect_uri=http%3A%2F%2Fwww.synopsys.com&scope=view_gallery&client_id=photoprint">here</a>
+      li
+        | Open redirect to example.com if clients are auto-approved: Please click
+        a(href=openRedirectUrl) here
         | .
     h3 Weak Authorization Codes
-    p 
-      | Bruteforce authorization codes at the token endpoint 
-      | <a href="http://attacker:1337/guessauthzcode">here</a>.
+    p
+      | Bruteforce authorization codes at the token endpoint
+      a(href='/guessauthzcode') here
+      | .
 
     h3 Exchange authorization code with other credentials
     p 
@@ -34,11 +35,12 @@ block content
 
     h3 Weak handle-based access tokens
     p
-       | Bruteforce access tokens at the resource server 
-       | <a href="http://attacker:1337/guessaccesstokenatresourceserver">here</a>.
+       | Bruteforce access tokens at the resource server
+       a(href='/guessaccesstokenatresourceserver') here
+       | .
 
     h3 Hash Tokens
     p
       | Obtain tokens from a database via a NoSQL injection.
-      | <a href="http://attacker:1337/hashtokens">here</a>
+      a(href='/hashtokens') here
 
