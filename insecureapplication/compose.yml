@@ -1,12 +1,13 @@
 services:
-  # gallery is now self-seeding SQLite (node:sqlite, built into Node -- no
-  # separate DB server, no native npm build step). It replaces the
-  # gallery + mongodb + mongoseed services that used to be here; no
-  # persistent volume is attached so every `docker compose up` starts from
-  # the same seed data, matching mongoseed's old behavior of re-restoring
-  # on every startup. See insecureapplication-go/z-ai/gallery-sqlite-plan.md.
+  # gallery is now the GUTS Stack (Go/SQLite) port of insecureapplication/gallery,
+  # see ../insecureapplication-go/gallery-idp. It replaces the original
+  # Node.js gallery + mongodb + mongoseed services with a single self-seeding
+  # binary. container_name stays "gallery" because photoprint and attacker
+  # resolve it by that DNS name; no persistent volume is attached so every
+  # `docker compose up` starts from the same seed data, matching mongoseed's
+  # behavior of re-restoring on every startup.
   gallery:
-    build: ./gallery
+    build: ../insecureapplication-go/gallery-idp
     container_name: "gallery"
     environment:
       - CLIENT_ID=${CLIENT_ID:-photoprint}

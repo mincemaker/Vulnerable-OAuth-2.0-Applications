@@ -1,0 +1,18 @@
+{{define "content"}}
+<h1>OAuth Clients</h1>
+<table>
+<tr><th>Client ID</th><th>Name</th><th>Client Secret</th><th>Trusted</th></tr>
+{{range .Clients}}
+<tr><td><a href="/clients/{{.ClientID}}">{{.ClientID}}</a></td><td>{{.Name}}</td><td>{{.ClientSecret}}</td><td>{{.Trusted}}</td></tr>
+{{end}}
+</table>
+<h2>Register New Client</h2>
+<form method="post" action="/clients">
+  <label>Client ID <input type="text" name="clientID"></label>
+  <label>Name <input type="text" name="name"></label>
+  <label>Client Secret <input type="text" name="clientSecret"></label>
+  <label>Redirect URIs <input type="text" name="redirectURIs"></label>
+  <label>Trusted <input type="checkbox" name="trusted"></label>
+  <button type="submit">Register</button>
+</form>
+{{end}}

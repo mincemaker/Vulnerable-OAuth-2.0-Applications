@@ -1,0 +1,31 @@
+{{define "layout"}}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Gallery</title>
+  <link rel="stylesheet" href="/static/stylesheets/base.css">
+  <link rel="stylesheet" href="/static/stylesheets/topnav.css">
+  <link rel="stylesheet" href="/static/stylesheets/sign-in-modules.css">
+</head>
+<body>
+  <nav class="topnav">
+    <a href="/">Gallery</a>
+    {{if .User}}
+      <a href="/photos/{{.User.Username}}">My Gallery</a>
+      <a href="/photos">Upload</a>
+      <a href="/users/me">My Profile</a>
+      <a href="/clients">Clients</a>
+      <a href="/albums">Albums</a>
+      <a href="/logout">Logout</a>
+    {{else}}
+      <a href="/login">Login</a>
+      <a href="/users/register">Register</a>
+    {{end}}
+  </nav>
+  <main>
+    {{template "content" .}}
+  </main>
+</body>
+</html>
+{{end}}

@@ -1,0 +1,12 @@
+{{define "content"}}
+<h1>{{.GalleryOwner}}'s Gallery</h1>
+<p>{{len .Images}} photos found!</p>
+<div class="gallery">
+{{range .Images}}
+  <div class="photo">
+    <a href="/photos/{{$.GalleryOwner}}/{{.ID}}"><img src="/photos/{{$.GalleryOwner}}/{{.ID}}/raw" alt="{{.Description}}" width="200"></a>
+    <p>{{.Description}}</p>
+  </div>
+{{end}}
+</div>
+{{end}}

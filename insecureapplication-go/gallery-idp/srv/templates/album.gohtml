@@ -1,0 +1,9 @@
+{{define "content"}}
+<h1>{{.Album.Name}}</h1>
+<p>{{.Album.Description}}</p>
+<form method="post" action="/albums/{{.Album.Name}}">
+  <input type="hidden" name="_method" value="PUT">
+  <label>Description <input type="text" name="description" value="{{.Album.Description}}"></label>
+  <button type="submit">Update</button>
+</form>
+{{end}}

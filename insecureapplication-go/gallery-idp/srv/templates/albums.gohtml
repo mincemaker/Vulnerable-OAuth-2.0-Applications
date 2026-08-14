@@ -1,0 +1,14 @@
+{{define "content"}}
+<h1>Albums</h1>
+<ul>
+{{range .Albums}}
+<li><a href="/albums/{{.Name}}">{{.Name}}</a> - {{.Description}}</li>
+{{end}}
+</ul>
+<h2>Create Album</h2>
+<form method="post" action="/albums">
+  <label>Name <input type="text" name="name"></label>
+  <label>Description <input type="text" name="description"></label>
+  <button type="submit">Create</button>
+</form>
+{{end}}

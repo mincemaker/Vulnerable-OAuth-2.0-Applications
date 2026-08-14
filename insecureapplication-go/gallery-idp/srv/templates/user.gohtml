@@ -1,0 +1,9 @@
+{{define "content"}}
+<h1>{{.Profile.Username}}'s Profile</h1>
+<form method="post" action="/users/{{.Profile.Username}}">
+  <label>Name <input type="text" name="name" value="{{.Profile.Name}}"></label>
+  <label>Email <input type="email" name="email" value="{{.Profile.Email}}"></label>
+  <label>New Password <input type="password" name="password"></label>
+  <button type="submit">Save</button>
+</form>
+{{end}}

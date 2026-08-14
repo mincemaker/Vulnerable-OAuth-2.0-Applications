@@ -1,0 +1,9 @@
+{{define "content"}}
+<h1>Users</h1>
+<table>
+<tr><th>Username</th><th>Name</th><th>Email</th></tr>
+{{range .Users}}
+<tr><td><a href="/users/{{.Username}}">{{.Username}}</a></td><td>{{.Name}}</td><td>{{.Email}}</td></tr>
+{{end}}
+</table>
+{{end}}

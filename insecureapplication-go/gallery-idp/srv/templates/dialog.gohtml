@@ -1,0 +1,17 @@
+{{/* Consent screen. Deliberately has NO csrf token -- only transaction_id
+     and scope are posted back, matching insecureapplication/gallery/views/dialog.jade. */}}
+{{define "content"}}
+<h1>Authorize {{.Client.Name}}</h1>
+<p>{{.User.Username}}, do you want to allow "{{.Client.Name}}" to:</p>
+<ul>
+{{range .Scopes}}
+  <li>{{index $.ScopeMap .}}</li>
+{{end}}
+</ul>
+<form method="post" action="/oauth/authorize/decision">
+  <input type="hidden" name="transaction_id" value="{{.TransactionID}}">
+  <input type="hidden" name="scope" value="{{.Scope}}">
+  <button type="submit" id="allow" name="allow" value="Allow">Allow</button>
+  <button type="submit" id="deny" name="cancel" value="Deny">Deny</button>
+</form>
+{{end}}

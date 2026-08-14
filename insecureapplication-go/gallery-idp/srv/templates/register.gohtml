@@ -1,0 +1,10 @@
+{{define "content"}}
+<h1>Register</h1>
+<form method="post" action="/users">
+  <label>Username <input type="text" name="username"></label>
+  <label>Password <input type="password" name="password"></label>
+  <label>Repeat Password <input type="password" name="passwordrepeat"></label>
+  <label>Email <input type="email" name="email"></label>
+  <button type="submit">Register</button>
+</form>
+{{end}}

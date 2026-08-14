@@ -1,0 +1,8 @@
+{{define "content"}}
+<h1>Upload Photo</h1>
+<form method="post" action="/photos" enctype="multipart/form-data">
+  <label>File <input type="file" name="recfile"></label>
+  <label>Description <input type="text" name="description"></label>
+  <button type="submit">Upload</button>
+</form>
+{{end}}
