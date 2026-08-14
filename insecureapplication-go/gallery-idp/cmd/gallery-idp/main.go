@@ -27,6 +27,10 @@ func main() {
 		log.Error("could not create uploads dir", "err", err)
 		os.Exit(1)
 	}
+	if err := db.WriteSeedUploads(*uploadsDir); err != nil {
+		log.Error("could not write seed uploads", "err", err)
+		os.Exit(1)
+	}
 
 	database, err := db.Open(*dbPath)
 	if err != nil {

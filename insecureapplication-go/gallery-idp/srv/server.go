@@ -10,6 +10,7 @@ import (
 	"net/http"
 
 	"gallery-idp/db"
+	"gallery-idp/web"
 )
 
 type Server struct {
@@ -89,8 +90,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /albums/{name}", s.withSession(s.requireLoggedIn(s.handleAlbumDelete)))
 
 	// --- static assets: public/ served without auth, matching
-	// express.static(public) in the original (uploads/ included). ---
-	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.Dir("web/static"))))
+	// express.static(public) in the original (uploads/ included). CSS is
+	// embedded (see web/embed.go) so the compiled binary is self-contained;
+	// uploads/ stays on disk since it's written to at runtime. ---
+	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(web.Static))))
 	mux.Handle("GET /uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir(s.UploadsDir))))
 
 	return mux

@@ -1,0 +1,14 @@
+[Unit]
+Description=photoprint-client (deliberately vulnerable OAuth 2.0 client, GUTS Stack port)
+After=network.target
+
+[Service]
+Type=simple
+User=exedev
+WorkingDirectory=/home/exedev
+ExecStart=/home/exedev/photoprint-client -listen :3000
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

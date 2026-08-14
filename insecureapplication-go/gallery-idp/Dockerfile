@@ -19,8 +19,9 @@ FROM alpine:3.20
 WORKDIR /app
 
 COPY --from=builder /bin/gallery-idp /app/gallery-idp
-COPY web/static /app/web/static
-COPY public/uploads /app/public/uploads
+# web/static and the two seed photos are compiled into the binary via
+# go:embed (see web/embed.go and db/seedfiles.go); the binary writes the
+# seed photos out to -uploads on startup, so nothing else needs COPYing.
 
 EXPOSE 3005
 

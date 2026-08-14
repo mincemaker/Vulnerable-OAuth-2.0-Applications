@@ -1,0 +1,35 @@
+{{define "content"}}
+<div class="container">
+  <h2>Review your order.</h2>
+  <p>You will print the following photos:</p>
+  {{if .SelectedPhotos}}
+  <table>
+    <tr><th>Pic</th><th>Price</th></tr>
+    {{range .SelectedPhotos}}
+      {{if .}}
+      <tr>
+        <td><img src="{{$.Basepath}}{{.ID}}/raw" width="50px" alt="{{.Description}}"></td>
+        <td>{{$.Price}}</td>
+      </tr>
+      {{end}}
+    {{end}}
+    <tr><td>Total</td><td>{{.TotalPrice}}</td></tr>
+  </table>
+
+  <form role="form" action="/confirm" method="post" style="max-width: 600px;">
+    <div class="form-group">
+      <input class="form-control" type="text" name="name" placeholder="Enter your name">
+    </div>
+    <div class="form-group">
+      <input class="form-control" type="text" name="address" placeholder="Enter your address">
+    </div>
+    <div class="form-group">
+      <input class="form-control" type="text" name="creditcard" placeholder="Enter your credit card number">
+    </div>
+    <button class="btn btn-default" type="submit">Submit</button>
+  </form>
+  {{else}}
+  No photos selected!
+  {{end}}
+</div>
+{{end}}

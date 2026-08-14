@@ -14,8 +14,11 @@ services:
       - CLIENT_SECRET=${CLIENT_SECRET:-secret}
     ports:
       - "3005:3005"
+  # photoprint is now the GUTS Stack (Go) port of insecureapplication/photoprint,
+  # see ../insecureapplication-go/photoprint-client. container_name stays
+  # "photoprint" because attacker resolves it by that DNS name.
   photoprint:
-    build: ./photoprint
+    build: ../insecureapplication-go/photoprint-client
     container_name: "photoprint"
     environment:
       - CLIENT_ID=${CLIENT_ID:-photoprint}

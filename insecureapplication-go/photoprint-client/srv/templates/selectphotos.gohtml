@@ -1,0 +1,19 @@
+{{define "content"}}
+<div class="container">
+  <h2>Photos hosted on Gallery</h2>
+  <p>Select the photos below</p>
+  {{if .Images}}
+  <form role="form" action="/order" method="post" style="max-width: 600px;">
+    {{range $i, $pic := .Images}}
+    <div class="form-group">
+      <img src="{{$.Basepath}}{{$pic.ID}}/raw" width="200px" alt="{{$pic.Description}}">
+      <input class="form-control" type="checkbox" name="{{$i}}" checked>
+    </div>
+    {{end}}
+    <button class="btn btn-default" type="submit">Submit</button>
+  </form>
+  {{else}}
+  No photos found!
+  {{end}}
+</div>
+{{end}}
