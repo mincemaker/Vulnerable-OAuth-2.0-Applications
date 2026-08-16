@@ -1,4 +1,4 @@
-const MyAlbum = require('../models/album');
+const albums = require('../db/albums');
 const util = require('./util');
 
 /**
@@ -17,19 +17,18 @@ function getAlbums(req, res) {
  * @param {*} res response
  */
 function createAlbum(req, res) {
+  let name;
   if (req.params.name) {
     name = req.params.name;
   } else {
     name = req.body.name;
   }
-  new MyAlbum({
-    name: name,
-    description: req.body.description,
-    user: req.user._id,
-  }).save(function(err, album, numAffected) {
-    if (err) return util.renderError(req, res, err, 'error');
-    return renderAlbum2(req, res, album);
-  });
+  try {
+    albums.createAlbum({name: name, description: req.body.description, userId: req.user._id});
+  } catch (err) {
+    return util.renderError(req, res, err, 'error');
+  }
+  return renderAlbum2(req, res, albums.getAlbumByName(name));
 }
 
 /**
@@ -39,13 +38,11 @@ function createAlbum(req, res) {
  */
 function renderAlbum(req, res) {
   let album = req.params.name;
-  MyAlbum.findOne({name: album}, function(err, foundalbum) {
-    if (foundalbum == null) {
-      err = 'This album does not exist.';
-    }
-    if (err) return util.renderError(req, res, err, 'error');
-    return renderAlbum2(req, res, foundalbum);
-  });
+  let foundalbum = albums.getAlbumByName(album);
+  if (foundalbum == null) {
+    return util.renderError(req, res, 'This album does not exist.', 'error');
+  }
+  return renderAlbum2(req, res, foundalbum);
 }
 
 /**
@@ -57,14 +54,12 @@ function updateAlbum(req, res) {
   let name = req.params.name;
   let description = req.body.description;
 
-  MyAlbum.findOneAndUpdate(
-      {name: name},
-      {description: description},
-      function(err, album) {
-        if (err) return util.renderError(req, res, err, 'error');
-        return util.renderMessage(req, res, null, 204);
-      }
-  );
+  try {
+    albums.updateAlbumFields(name, {description: description});
+  } catch (err) {
+    return util.renderError(req, res, err, 'error');
+  }
+  return util.renderMessage(req, res, null, 204);
 }
 
 /**
@@ -74,14 +69,12 @@ function updateAlbum(req, res) {
  */
 function deleteAlbum(req, res) {
   let name = req.params.name;
-
-  MyAlbum.findOneAndRemove(
-      {name: name},
-      function(err, album) {
-        if (err) return util.renderError(req, res, err, 'error');
-        return util.renderMessage(req, res, 'Successfully Deleted.', 200);
-      }
-  );
+  try {
+    albums.deleteAlbum(name);
+  } catch (err) {
+    return util.renderError(req, res, err, 'error');
+  }
+  return util.renderMessage(req, res, 'Successfully Deleted.', 200);
 }
 
 /**
@@ -92,7 +85,6 @@ function deleteAlbum(req, res) {
  * @return {*} response of res.format
  */
 function renderAlbum2(req, res, album) {
-  user = album.user;
   let backURL = req.header('Referer') || '/';
 
   return res.format({
@@ -124,36 +116,34 @@ function renderAlbum2(req, res, album) {
  */
 function renderAlbums(req, res, user) {
   let backURL = req.header('Referer') || '/';
-  user.albums.then(function(albums) {
-    if (user) {
-      console.log('User:' + user.username);
-      console.log('Albums:' + JSON.stringify(albums));
+  if (!user) return util.renderError(req, res, 'No such user.', 'error');
+  let userAlbums = albums.listAlbumsByUser(user._id);
+  console.log('User:' + user.username);
+  console.log('Albums:' + JSON.stringify(userAlbums));
 
-      return res.format({
-      // if accept: text/html render a page
-        'text/html': function() {
-          res.render('albums', {
-            editable: true,
-            albums: albums,
-            basepath: util.getFullURL(),
-            imagepath: util.getImagePath(user.username),
-            backURL: backURL,
-          });
-        },
-        // if json: render a json response
-        'application/json': function() {
-          if (albums) {
-            res.status(200).send({albums: albums});
-          } else {
-            res.status(404).send([]);
-          }
-        },
-        // other formats are not supported
-        'default': function() {
-          res.status(406).send('Not Acceptable');
-        },
+  return res.format({
+    // if accept: text/html render a page
+    'text/html': function() {
+      res.render('albums', {
+        editable: true,
+        albums: userAlbums,
+        basepath: util.getFullURL(),
+        imagepath: util.getImagePath(user.username),
+        backURL: backURL,
       });
-    }
+    },
+    // if json: render a json response
+    'application/json': function() {
+      if (userAlbums) {
+        res.status(200).send({albums: userAlbums});
+      } else {
+        res.status(404).send([]);
+      }
+    },
+    // other formats are not supported
+    'default': function() {
+      res.status(406).send('Not Acceptable');
+    },
   });
 }
 

@@ -5,8 +5,12 @@ const expressSession = require('express-session');
 // that uses bodyarser and cookieParser to parse requests
 const cookieParser = require('cookie-parser');
 const bodyParser = require('body-parser');
-// stores data into mongoDB. It uses mongoose models.
-const mongoose = require('mongoose').set('debug', true);
+// stores data in SQLite (node:sqlite, built into Node -- no separate DB
+// server, no native npm build step). See
+// insecureapplication-go/z-ai/gallery-sqlite-plan.md for why this replaced
+// MongoDB/Mongoose.
+const db = require('./db/db');
+const seed = require('./db/seed');
 // authentication happens with passport and passport strategies
 const passport = require('passport');
 // during dev, it uses the errorhandler package. Erros are logged  with morgan.
@@ -18,8 +22,12 @@ let path = require('path');
 // our configuration file
 const config = require('./config/config.json');
 
-// initialize mongoDB and mongoose
-mongoose.connect(config.mongodb.url, config.mongodb.options);
+// initialize the SQLite database: open (creating the file if needed), run
+// migrations, then self-seed the same fixture data mongo-seed used to
+// restore on every container start.
+db.open(process.env.SQLITE_DB_PATH || path.join(__dirname, config.sqlite.file));
+db.runMigrations();
+seed.seed(path.join(__dirname, 'public', 'uploads'));
 
 // initialize express
 let app = express();

@@ -2,11 +2,8 @@
   "session": {
     "secret":"changethistoconfigfile"
   },
-  "mongodb": {
-    "url": "mongodb://mongodb/gallery2",
-    "options": {
-      "useNewUrlParser": true
-    }
+  "sqlite": {
+    "file": "gallery.sqlite3"
   },
   "token":{
     "access":{

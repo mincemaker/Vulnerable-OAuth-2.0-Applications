@@ -1,6 +1,6 @@
 const path = require('path');
-const User = require('../models/user');
-const MyImage = require('../models/image');
+const users = require('../db/users');
+const images = require('../db/images');
 const util = require('./util');
 const multer = require('multer');
 const fs = require('fs');
@@ -32,13 +32,16 @@ function getUsername(req) {
  */
 function getGallery(req, res) {
   let userid = getUsername(req);
-  User.findOne({username: userid}, function(err, founduser) {
-    if (founduser == null) {
-      err = 'No gallery for this user.';
-    }
-    if (err) return util.renderError(req, res, err, 'error');
-    return renderGallery(req, res, founduser);
-  });
+  let founduser;
+  try {
+    founduser = users.getUserByUsername(userid);
+  } catch (err) {
+    return util.renderError(req, res, err, 'error');
+  }
+  if (founduser == null) {
+    return util.renderError(req, res, 'No gallery for this user.', 'error');
+  }
+  return renderGallery(req, res, founduser);
 }
 
 /**
@@ -50,14 +53,12 @@ function updateImage(req, res) {
   let imageid = req.params.imageid;
   let description = req.body.description;
 
-  MyImage.findOneAndUpdate(
-      {_id: imageid},
-      {description: description},
-      function(err, image) {
-        if (err) return util.renderError(req, res, err, 'error');
-        return util.renderMessage(req, res, null, 204);
-      }
-  );
+  try {
+    images.updateImageFields(imageid, {description: description});
+  } catch (err) {
+    return util.renderError(req, res, err, 'error');
+  }
+  return util.renderMessage(req, res, null, 204);
 }
 
 /**
@@ -67,14 +68,12 @@ function updateImage(req, res) {
  */
 function deleteImage(req, res) {
   let imageid = req.params.imageid;
-
-  MyImage.findOneAndRemove(
-      {_id: imageid},
-      function(err, image) {
-        if (err) return util.renderError(req, res, err, 'error');
-        return util.renderMessage(req, res, 'Successfully Deleted.', 200);
-      }
-  );
+  try {
+    images.deleteImage(imageid);
+  } catch (err) {
+    return util.renderError(req, res, err, 'error');
+  }
+  return util.renderMessage(req, res, 'Successfully Deleted.', 200);
 }
 
 /**
@@ -97,34 +96,34 @@ function renderUpload(req, res) {
  */
 function renderGallery(req, res, user) {
   let backURL = req.header('Referer') || '/';
-  if (user) {
-    user.images(function(err, result) {
-      util.renderError(req, res, err, 'error');
-      if (!err) {
-        return res.format({
-          // if accept: text/html render a page
-          'text/html': function() {
-            res.render('gallery', {
-              user: req.user,
-              gallery: user,
-              images: result,
-              basepath: util.getFullURL(),
-              imagepath: util.getImagePath(user.username),
-              backURL: backURL,
-            });
-          },
-          // if json: render a json response
-          'application/json': function() {
-            res.status(200).send({images: result});
-          },
-          // other formats are not supported
-          'default': function() {
-            res.status(406).send('Not Acceptable');
-          },
-        });
-      }
-    });
+  if (!user) return util.renderError(req, res, 'No such user.', 'error');
+  let result;
+  try {
+    result = images.listImagesByUser(user._id);
+  } catch (err) {
+    return util.renderError(req, res, err, 'error');
   }
+  return res.format({
+    // if accept: text/html render a page
+    'text/html': function() {
+      res.render('gallery', {
+        user: req.user,
+        gallery: user,
+        images: result,
+        basepath: util.getFullURL(),
+        imagepath: util.getImagePath(user.username),
+        backURL: backURL,
+      });
+    },
+    // if json: render a json response
+    'application/json': function() {
+      res.status(200).send({images: result});
+    },
+    // other formats are not supported
+    'default': function() {
+      res.status(406).send('Not Acceptable');
+    },
+  });
 }
 
 /**
@@ -135,10 +134,13 @@ function renderGallery(req, res, user) {
 function getImageMetaData(req, res) {
   let imageid = req.params.imageid;
   let username = getUsername(req);
-  MyImage.findOne({_id: imageid}, function(err, image) {
-    if (err) return util.renderError(req, res, err, 'error');
-    return renderImage(req, res, image, username);
-  });
+  let image;
+  try {
+    image = images.getImage(imageid);
+  } catch (err) {
+    return util.renderError(req, res, err, 'error');
+  }
+  return renderImage(req, res, image, username);
 }
 
 /**
@@ -162,11 +164,15 @@ function uploadImage(req, res) {
 
   // copied the file to the destination
   src.on('end', function() {
-    new MyImage({
-      url: req.file.originalname,
-      description: req.body.description,
-      userid: req.user._id,
-    }).save();
+    try {
+      images.createImage({
+        url: req.file.originalname,
+        description: req.body.description,
+        userId: req.user._id,
+      });
+    } catch (err) {
+      return util.renderError(req, res, err, 'error');
+    }
     res.redirect('/');
   });
   src.on('error', function(err) {
@@ -182,10 +188,13 @@ function uploadImage(req, res) {
  */
 function serveImage(req, res) {
   let imageid = req.params.imageid;
-  MyImage.findOne({_id: imageid}, function(err, image) {
-    if (err) return util.renderError(req, res, err, 'error');
-    util.serveImage(req, res, image);
-  });
+  let image;
+  try {
+    image = images.getImage(imageid);
+  } catch (err) {
+    return util.renderError(req, res, err, 'error');
+  }
+  util.serveImage(req, res, image);
 }
 
 /**

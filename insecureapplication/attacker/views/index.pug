@@ -44,8 +44,13 @@ block content
        a(href='/guessaccesstokenatresourceserver') here
        | .
 
-    h3 Hash Tokens
-    p
-      | Obtain tokens from a database via a NoSQL injection.
-      a(href='/hashtokens') here
+    //- Hash Tokens: obtained refresh tokens via a NoSQL injection ($where)
+    //- against gallery's MongoDB. gallery is now SQLite (see
+    //- insecureapplication-go/z-ai/gallery-sqlite-plan.md), which has no
+    //- $where equivalent, so this no longer applies -- see the matching
+    //- commented-out /hashtokens route in app.js.
+    //- h3 Hash Tokens
+    //- p
+    //-   | Obtain tokens from a database via a NoSQL injection.
+    //-   a(href='/hashtokens') here
 

@@ -1,5 +1,5 @@
 /* jshint esversion: 6 */
-const Client = require('../models/client');
+const clients = require('../db/clients');
 const util = require('./util');
 
 /**
@@ -13,7 +13,7 @@ function updateClient(req, res) {
   let clientSecret = req.body.clientSecret;
   // insecure: should validate that they are URLs with complete path
   // See: https://tools.ietf.org/html/RFC6749#3.1.2.2
-  let redirectURIs = req.body.redirectURIs;
+  let redirectURIs = req.body.redirectURIs; // vulnerability: accepted but never persisted (no such column)
   let trusted = req.body.trusted;
 
   let options = {};
@@ -21,23 +21,21 @@ function updateClient(req, res) {
     options.name = name;
   }
   if (clientSecret) {
-    options.clientSecret = clientSecret;
-  }
-  if (redirectURIs) {
-    options.redirectURIs = redirectURIs.split(';');
+    options.client_secret = clientSecret;
   }
   if (trusted) {
     options.trusted = trusted;
   }
 
-  Client.findOneAndUpdate({clientID: clientID}, options, function(err, client) {
-    if (client == null) err = 'Client not found';
-    if (err) {
-      return util.renderError(req, res, err, 'error');
-    } else {
-      return util.renderMessage(req, res, null, 204);
-    }
-  });
+  if (!clients.getClient(clientID)) {
+    return util.renderError(req, res, 'Client not found', 'error');
+  }
+  try {
+    clients.updateClientFields(clientID, options);
+  } catch (err) {
+    return util.renderError(req, res, err, 'error');
+  }
+  return util.renderMessage(req, res, null, 204);
 }
 
 /**
@@ -47,10 +45,13 @@ function updateClient(req, res) {
  */
 function getClient(req, res) {
   let clientID = req.params.clientID;
-  Client.findOne({clientID: clientID}, function(err, client) {
-    if (err) return util.renderError(req, res, err, 'error');
-    return renderClient(req, res, client);
-  });
+  let client;
+  try {
+    client = clients.getClient(clientID);
+  } catch (err) {
+    return util.renderError(req, res, err, 'error');
+  }
+  return renderClient(req, res, client);
 }
 
 /**
@@ -60,13 +61,12 @@ function getClient(req, res) {
  */
 function deleteClient(req, res) {
   let clientID = req.params.clientID;
-  Client.findOneAndRemove(
-      {clientID: clientID},
-      function(err, client) {
-        if (err) return util.renderError(req, res, err, 'error');
-        return util.renderMessage(req, res, 'Successfully Deleted.', 200);
-      }
-  );
+  try {
+    clients.deleteClient(clientID);
+  } catch (err) {
+    return util.renderError(req, res, err, 'error');
+  }
+  return util.renderMessage(req, res, 'Successfully Deleted.', 200);
 }
 
 /**
@@ -77,7 +77,6 @@ function deleteClient(req, res) {
  */
 function createClient(req, res) {
   let clientID = req.body.clientID;
-  let redirectURIs = req.body.redirectURIs;
   let trusted = undefined;
   if (req.body.trusted != undefined && req.body.trusted != null) {
     trusted = req.body.trusted;
@@ -85,16 +84,20 @@ function createClient(req, res) {
     trusted = false;
   }
 
-  new Client({
-    clientID: clientID,
-    name: req.body.name,
-    clientSecret: req.body.clientSecret,
-    redirectURIs: redirectURIs.split(';'),
-    trusted: trusted,
-  }).save(function(err, client, numAffected) {
-    if (err) return util.renderError(req, res, err, 'error');
-    return renderClient(req, res, client);
-  });
+  try {
+    // vulnerability: redirectURIs accepted but never persisted -- the
+    // clients table has no such column, mirroring the original Mongoose
+    // schema.
+    clients.createClient({
+      clientId: clientID,
+      name: req.body.name,
+      clientSecret: req.body.clientSecret,
+      trusted: trusted,
+    });
+  } catch (err) {
+    return util.renderError(req, res, err, 'error');
+  }
+  return renderClient(req, res, clients.getClient(clientID));
 }
 
 /**
@@ -103,10 +106,13 @@ function createClient(req, res) {
  * @param {*} res response with client information.
  */
 function getClients(req, res) {
-  Client.find({}, function(err, clients) {
-    if (err) return util.renderError(req, res, err, 'error');
-    return renderClients(req, res, clients);
-  });
+  let foundClients;
+  try {
+    foundClients = clients.listClients();
+  } catch (err) {
+    return util.renderError(req, res, err, 'error');
+  }
+  return renderClients(req, res, foundClients);
 }
 
 /**

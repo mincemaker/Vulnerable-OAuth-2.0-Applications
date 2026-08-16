@@ -1,6 +1,7 @@
 const util = require('./util');
-const User = require('../models/user');
+const users = require('../db/users');
 const passport = require('passport');
+const bcryptjs = require('bcryptjs');
 
 // vulnerability: user enumeration: user can get list of all user profiles
 // by enumerating over req.params.name
@@ -15,10 +16,13 @@ function getProfile(req, res) {
   if (userid === 'me') {
     userid = req.user.username;
   }
-  User.findOne({username: userid}, function(err, founduser) {
-    if (err) return util.renderError(req, res, err, 'error');
-    return renderUser(req, res, founduser);
-  });
+  let founduser;
+  try {
+    founduser = users.getUserByUsername(userid);
+  } catch (err) {
+    return util.renderError(req, res, err, 'error');
+  }
+  return renderUser(req, res, founduser);
 }
 
 /**
@@ -30,34 +34,31 @@ function createProfile(req, res) {
   // vulnerability: vulnerable to username enumeration
   // - error message states when the user already exists
   // vulnerability: usernames of deleted users can be chosen
-  // create a new user
-  User.register(
-      // register user object
-      user = new User({
-        username: req.body.username,
-        name: req.body.username,
-        email: req.body.email,
-      }),
-      // its password
-      req.body.password,
-      // callback function for error
-      function(err, account) {
-        if (err) {
-          util.renderError(req, res, err, 'register');
-        } else {
-          // authenticate user when no error with local strategy
-          // username/password
-          passport.authenticate('local')(req, res, function() {
-            req.session.save(function(err) {
-              if (err) {
-                return next(err);
-              }
-              return res.redirect('/');
-            });
-          });
-        }
+  let id;
+  try {
+    let hash = bcryptjs.hashSync(req.body.password, 10);
+    id = users.createUser({
+      username: req.body.username,
+      name: req.body.username,
+      email: req.body.email,
+      passwordHash: hash,
+    });
+  } catch (err) {
+    return util.renderError(req, res, err, 'register');
+  }
+  // log the newly-created user in directly (already-verified credentials,
+  // no need to re-run them through the local strategy)
+  req.login(users.getUserById(id), function(err) {
+    if (err) {
+      return util.renderError(req, res, err, 'register');
+    }
+    req.session.save(function(err) {
+      if (err) {
+        return util.renderError(req, res, err, 'register');
       }
-  );
+      return res.redirect('/');
+    });
+  });
 }
 
 /**
@@ -70,14 +71,13 @@ function updateProfile(req, res) {
   // error message states when the user already exists
   // vulnerability: usernames of deleted users can be chosen
   let userid = req.params.name;
-  User.findOneAndUpdate({username: userid},
-      // vulnerability: mass assignment
-      req.body,
-      function(err, founduser) {
-        if (err) return util.renderError(req, res, err, 'error');
-        else return util.renderMessage(req, res, null, 204);
-      }
-  );
+  try {
+    // vulnerability: mass assignment
+    users.updateUserFields(userid, req.body);
+  } catch (err) {
+    return util.renderError(req, res, err, 'error');
+  }
+  return util.renderMessage(req, res, null, 204);
 }
 
 /**
@@ -88,13 +88,12 @@ function updateProfile(req, res) {
 function deleteProfile(req, res) {
   let userid = req.params.name;
   // vulnerability: usernames of deleted users can be chosen
-  User.findOneAndRemove(
-      {username: userid},
-      function(err, founduser) {
-        if (err) return util.renderError(req, res, err, 'error');
-        else return util.renderMessage(req, res, 'Successfully Deleted.', 200);
-      }
-  );
+  try {
+    users.deleteUser(userid);
+  } catch (err) {
+    return util.renderError(req, res, err, 'error');
+  }
+  return util.renderMessage(req, res, 'Successfully Deleted.', 200);
 }
 
 /**
@@ -103,10 +102,13 @@ function deleteProfile(req, res) {
  * @param {*} res response
  */
 function getUsers(req, res) {
-  User.find({}, function(err, users) {
-    if (err) return util.renderError(req, res, err, 'error');
-    else return renderUsers(req, res, users);
-  });
+  let foundUsers;
+  try {
+    foundUsers = users.listUsers();
+  } catch (err) {
+    return util.renderError(req, res, err, 'error');
+  }
+  return renderUsers(req, res, foundUsers);
 }
 
 /**

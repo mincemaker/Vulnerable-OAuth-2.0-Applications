@@ -1,18 +1,43 @@
 const passport = require('passport');
-// const LocalStrategy = require('passport-local').Strategy;
+const LocalStrategy = require('passport-local').Strategy;
 const BasicStrategy = require('passport-http').BasicStrategy;
 const ClientPasswordStrategy = require(
     'passport-oauth2-client-password').Strategy;
 const BearerStrategy = require('passport-http-bearer').Strategy;
 const login = require('connect-ensure-login');
+const bcryptjs = require('bcryptjs');
 
-const User = require('../models/user');
-const Client = require('../models/client');
-const AccessToken = require('../models/accesstoken');
+const users = require('../db/users');
+const clients = require('../db/clients');
+const oauth = require('../db/oauth');
 
-passport.use(User.createStrategy()); // LocalStrategy
-passport.serializeUser(User.serializeUser());
-passport.deserializeUser(User.deserializeUser());
+// Replaces passport-local-mongoose's User.createStrategy(): verifies
+// username/password against the SQLite-stored bcrypt hash.
+passport.use(new LocalStrategy(function(username, password, done) {
+  let user;
+  try {
+    user = users.getUserByUsername(username);
+  } catch (err) {
+    return done(err);
+  }
+  if (!user) {
+    return done(null, false);
+  }
+  if (!bcryptjs.compareSync(password, user.password_hash)) {
+    return done(null, false);
+  }
+  return done(null, user);
+}));
+passport.serializeUser(function(user, done) {
+  done(null, user._id);
+});
+passport.deserializeUser(function(id, done) {
+  try {
+    done(null, users.getUserById(id));
+  } catch (err) {
+    done(err);
+  }
+});
 
 /**
  * BasicStrategy
@@ -24,40 +49,41 @@ passport.deserializeUser(User.deserializeUser());
  */
 passport.use(new BasicStrategy(
     function(username, password, done) {
-      Client.findOne({clientID: username}, function(err, client) {
-        if (err) {
-          return done(err);
-        }
-        if (!client) {
-          return done(null, false);
-        }
-        // vulnerability: this function MUST implement rate limiting
-        // to protect against bruteforce attacks - RFC6749#section-2.3.1
-        if (!client.verifyClientSecretSync(password)) {
-          return done(null, false);
-        }
-        return done(null, client);
-      });
+      let client;
+      try {
+        client = clients.getClient(username);
+      } catch (err) {
+        return done(err);
+      }
+      if (!client) {
+        return done(null, false);
+      }
+      // vulnerability: this function MUST implement rate limiting
+      // to protect against bruteforce attacks - RFC6749#section-2.3.1
+      if (client.client_secret !== password) {
+        return done(null, false);
+      }
+      return done(null, client);
     }
 ));
 
 passport.use(new ClientPasswordStrategy(
     function(clientID, clientSecret, done) {
-      Client.findOne({clientID: clientID}, function(err, client) {
-        if (err) {
-          return done(err);
-        }
-        if (!client) {
-          return done(null, false);
-        }
-        // vulnerability: this function MUST implement rate limiting
-        // to protect against bruteforce attacks - RFC6749#section-2.3.1
-        let valid = client.verifyClientSecretSync(clientSecret);
-        if (!valid) {
-          return done(null, false);
-        }
-        return done(null, client);
-      });
+      let client;
+      try {
+        client = clients.getClient(clientID);
+      } catch (err) {
+        return done(err);
+      }
+      if (!client) {
+        return done(null, false);
+      }
+      // vulnerability: this function MUST implement rate limiting
+      // to protect against bruteforce attacks - RFC6749#section-2.3.1
+      if (client.client_secret !== clientSecret) {
+        return done(null, false);
+      }
+      return done(null, client);
     }
 ));
 
@@ -73,47 +99,50 @@ passport.use(new BearerStrategy(
     function(accessToken, done) {
       // insecure: logs access token
       console.log(accessToken);
-      AccessToken.findOne({token: accessToken}, function(err, token) {
-        // vulnerability: logs access token
-        console.log('TOKEN: ' + JSON.stringify(token));
-        if (err) {
+      let token;
+      try {
+        token = oauth.getAccessToken(accessToken);
+      } catch (err) {
+        return done(err);
+      }
+      // vulnerability: logs access token
+      console.log('TOKEN: ' + JSON.stringify(token));
+      if (!token) {
+        return done(null, false);
+      }
+      // check expiration
+      if (oauth.isExpired(token)) {
+        return done(null, false);
+      }
+
+      // userid in token
+      if (token.user_id != null) {
+        let user;
+        try {
+          user = users.getUserById(token.user_id);
+        } catch (err) {
           return done(err);
         }
-        if (!token) {
+        if (!user) {
           return done(null, false);
         }
-        // check expiration
-        if (token.isExpired()) {
+        let info = {scope: token.scope};
+        done(null, user, info);
+      } else {
+        // The request came from a client only since userID is null
+        // therefore the client is passed back instead of a user
+        let client;
+        try {
+          client = clients.getClient(token.client_id);
+        } catch (err) {
+          return done(err);
+        }
+        if (!client) {
           return done(null, false);
         }
-
-        // userid in token
-        if (token.user != null) {
-          User.findOne({_id: token.user}, function(err, user) {
-            if (err) {
-              return done(err);
-            }
-            if (!user) {
-              return done(null, false);
-            }
-            let info = {scope: token.scope};
-            done(null, user, info);
-          });
-        } else {
-          // The request came from a client only since userID is null
-          // therefore the client is passed back instead of a user
-          Client.findOne({clientID: token.clientID}, function(err, client) {
-            if (err) {
-              return done(err);
-            }
-            if (!client) {
-              return done(null, false);
-            }
-            let info = {scope: token.scope};
-            done(null, client, info);
-          });
-        }
-      });
+        let info = {scope: token.scope};
+        done(null, client, info);
+      }
     }
 ));
 

@@ -2,12 +2,18 @@ const oauth2orize = require('oauth2orize');
 const url = require('url');
 const qs = require('querystring');
 
-const Client = require('../models/client');
-const User = require('../models/user');
-const AuthorizationCode = require('../models/authorizationcode');
-const AccessToken = require('../models/accesstoken');
-const RefreshToken = require('../models/refreshtoken');
+const clients = require('../db/clients');
+const users = require('../db/users');
+const oauth = require('../db/oauth');
 const config = require('../config/config');
+
+// oauth2orize's grant modules parse a space/comma-separated scope string
+// into an array; SQLite bind parameters can't be arrays, so this joins it
+// back into a comma-separated string for storage -- exactly what Mongoose
+// did automatically when an array was assigned to a String-typed field.
+function scopeToString(scope) {
+  return Array.isArray(scope) ? scope.join(',') : scope;
+}
 
 // create OAuth 2.0 server
 let server = oauth2orize.createServer();
@@ -24,8 +30,16 @@ let server = oauth2orize.createServer();
 // client object is serialized into the session.  Typically this will be a
 // simple matter of serializing the client's ID, and deserializing by finding
 // the client by ID from the database.
-server.serializeClient(Client.serializeClient());
-server.deserializeClient(Client.deserializeClient());
+server.serializeClient(function(client, done) {
+  return done(null, client.client_id);
+});
+server.deserializeClient(function(id, done) {
+  try {
+    return done(null, clients.getClient(id));
+  } catch (err) {
+    return done(err);
+  }
+});
 
 // Register supported grant types.
 // secure: scope is used
@@ -106,18 +120,12 @@ function decision(req, done) {
 function grantcode(client, redirectURI, user, response, done) {
   // vulnerability: weak authorization codes
   let code = Math.floor(Math.random() * (100000-1) +1);
-  new AuthorizationCode({
-    clientID: client.clientID,
-    redirectURI: redirectURI,
-    user: user.id,
-    code: code,
-    scope: response.scope,
-  }).save(function(err, result) {
-    if (err) {
-      return done(err);
-    }
-    done(null, code);
-  });
+  try {
+    oauth.createAuthCode(code, client.client_id, user._id, redirectURI, scopeToString(response.scope));
+  } catch (err) {
+    return done(err);
+  }
+  done(null, code);
 }
 
 /**
@@ -133,17 +141,12 @@ function grantcode(client, redirectURI, user, response, done) {
 function granttoken(client, user, ares, done) {
   // vulnerability: weak access tokens, same generator as grantcode/exchangecode
   let token = Math.floor(Math.random() * (100000-1) +1) + '';
-  new AccessToken({
-    clientID: client.clientID,
-    user: user.id,
-    token: token,
-    scope: ares.scope,
-  }).save(function(err, result) {
-    if (err) {
-      return done(err);
-    }
-    done(null, token);
-  });
+  try {
+    oauth.createAccessToken(token, client.client_id, user._id, scopeToString(ares.scope));
+  } catch (err) {
+    return done(err);
+  }
+  done(null, token);
 }
 
 /**
@@ -158,28 +161,14 @@ function granttoken(client, user, ares, done) {
 function granthybrid(client, redirectURI, user, ares, done) {
   let code = Math.floor(Math.random() * (100000-1) +1);
   let token = Math.floor(Math.random() * (100000-1) +1) + '';
-  new AuthorizationCode({
-    clientID: client.clientID,
-    redirectURI: redirectURI,
-    user: user.id,
-    code: code,
-    scope: ares.scope,
-  }).save(function(err, result) {
-    if (err) {
-      return done(err);
-    }
-    new AccessToken({
-      clientID: client.clientID,
-      user: user.id,
-      token: token,
-      scope: ares.scope,
-    }).save(function(err, result) {
-      if (err) {
-        return done(err);
-      }
-      done(null, code, token);
-    });
-  });
+  let scope = scopeToString(ares.scope);
+  try {
+    oauth.createAuthCode(code, client.client_id, user._id, redirectURI, scope);
+    oauth.createAccessToken(token, client.client_id, user._id, scope);
+  } catch (err) {
+    return done(err);
+  }
+  done(null, code, token);
 }
 
 /**
@@ -335,73 +324,32 @@ function exchangecode(client, code, redirectURI, done) {
   // vulnerability: authorization code can be used more than once
   // vulnerability: expiry of authorization code is not validated
   // vulnerability: redirectURI is not validated (open redirect)
-  AuthorizationCode.findOne({code: code}, function(err, authCode) {
-    if (err) {
-      return done(
-          new oauth2orize.TokenError(
-              'Error while accessing the token database.',
-              'server_error'
-          )
-      );
-    }
-    if (authCode == null) {
-      return done(
-          new oauth2orize.AuthorizationError(
-              'Invalid Authorization Code.',
-              'access_denied'
-          )
-      );
-    }
+  let authCode;
+  try {
+    authCode = oauth.getAuthCode(code);
+  } catch (err) {
+    return done(new oauth2orize.TokenError('Error while accessing the token database.', 'server_error'));
+  }
+  if (authCode == null) {
+    return done(new oauth2orize.AuthorizationError('Invalid Authorization Code.', 'access_denied'));
+  }
 
-    // vulnerability: weak access tokens
-    let token = Math.floor(Math.random() * (100000-1) +1);
-    // vulnerability: the token is logged
-    console.log('Access Token: ' + token);
-    let refreshtoken = Math.floor(Math.random() * (100000-1) +1) + '';
-    let needsrefresh = null;
-    if (authCode.scope == null || authCode.scope == undefined) {
-      needsrefresh = false;
-    } else {
-      needsrefresh = authCode.scope.includes('offline_access');
+  // vulnerability: weak access tokens
+  let token = Math.floor(Math.random() * (100000-1) +1);
+  // vulnerability: the token is logged
+  console.log('Access Token: ' + token);
+  let refreshtoken = Math.floor(Math.random() * (100000-1) +1) + '';
+  let needsrefresh = authCode.scope != null && authCode.scope.includes('offline_access');
+
+  try {
+    oauth.createAccessToken(token, authCode.client_id, authCode.user_id, authCode.scope);
+    if (needsrefresh) {
+      oauth.createRefreshToken(refreshtoken, authCode.client_id, authCode.user_id, authCode.scope);
     }
-    new AccessToken({
-      clientID: authCode.clientID,
-      user: authCode.user,
-      token: token,
-      scope: authCode.scope,
-    }).save(function(err, result) {
-      if (err) {
-        return done(
-            new oauth2orize.TokenError(
-                'Error while accessing the token database.',
-                'server_error'
-            )
-        );
-      }
-      if (needsrefresh) {
-        new RefreshToken({
-          clientID: authCode.clientID,
-          user: authCode.user,
-          token: refreshtoken,
-          scope: authCode.scope,
-        }).save(function(err, result) {
-          if (err) {
-            return done(
-                new oauth2orize.TokenError(
-                    'Error while accessing the token database.',
-                    'server_error'
-                )
-            );
-          }
-        });
-      }
-      if (needsrefresh) {
-        return done(null, token, refreshtoken);
-      } else {
-        return done(null, token, null);
-      }
-    });
-  });
+  } catch (err) {
+    return done(new oauth2orize.TokenError('Error while accessing the token database.', 'server_error'));
+  }
+  return done(null, token, needsrefresh ? refreshtoken : null);
 }
 
 /**
@@ -416,58 +364,34 @@ function exchangerefreshtoken(client, mytoken, scope, done) {
   console.log('Refresh Token: ' + mytoken);
   // insecure: not a strong access token
   let accesstoken = Math.floor(Math.random() * (100000-1) +1) + '';
-  // RefreshToken.findOne({token: mytoken},
-  //   function(err, reftoken) {
-  // insecure: artificial way to get nosql injection
-  const MongoClient = require('mongodb').MongoClient;
-  let query = '{"$where": "function() { return this.token == '+mytoken +'; }"}';
-  MongoClient.connect(config.mongodb.url, config.mongodb.options, function(err, db) {
-    if (err) {
-      return done(false);
-    }
-    console.log('passed error msg');
-    db.db().collection('refreshtokens').find(JSON.parse(query)).
-        toArray(function(err, allrefs) {
-          console.log(allrefs);
-          if (err) {
-            return done(
-                new oauth2orize.TokenError(
-                    'Error while accessing the token database.',
-                    'server_error'
-                )
-            );
-          }
-          reftoken = allrefs[0];
-          if (reftoken == null || reftoken == undefined) {
-            return done(
-                new oauth2orize.AuthorizationError(
-                    'Invalid Refresh Token.',
-                    'access_denied'
-                )
-            );
-          }
-          new AccessToken({
-            clientID: reftoken.clientID,
-            user: reftoken.user,
-            token: accesstoken,
-            // insecure: attackers can request any scope they want
-            scope: reftoken.scope,
-          }).save(function(err, result) {
-            if (err) {
-              return done(
-                  new oauth2orize.TokenError(
-                      'Error while accessing the token database.',
-                      'server_error'
-                  )
-              );
-            }
-            return done(null, accesstoken, null, {
-              'description': 'You consumed the following refresh token: ' +
-              JSON.stringify(allrefs),
-            });
-          });
-        });
-  });
+
+  // NOTE: the original here used a raw MongoClient with a hand-built
+  // `$where` query (`this.token == ` + mytoken, string-concatenated
+  // straight from the request) as a NoSQL-injection demo -- sending
+  // refresh_token=this.token made the predicate always-true and dumped
+  // every refresh token in the collection. SQLite has no equivalent to
+  // $where's arbitrary-server-side-JS predicate, so that demo doesn't
+  // port; see insecureapplication-go/z-ai/gallery-sqlite-plan.md and
+  // insecureapplication/attacker/app.js's now-commented-out /hashtokens.
+  // What's left is a plain, still-vulnerable lookup: PoC6 (refresh token
+  // not bound to client) is unaffected.
+  let refreshToken;
+  try {
+    refreshToken = oauth.getRefreshToken(mytoken);
+  } catch (err) {
+    return done(new oauth2orize.TokenError('Error while accessing the token database.', 'server_error'));
+  }
+  if (refreshToken == null) {
+    return done(new oauth2orize.AuthorizationError('Invalid Refresh Token.', 'access_denied'));
+  }
+  try {
+    // insecure: the new access token inherits whatever scope the refresh
+    // token carried, regardless of which client is redeeming it (PoC6).
+    oauth.createAccessToken(accesstoken, refreshToken.client_id, refreshToken.user_id, refreshToken.scope);
+  } catch (err) {
+    return done(new oauth2orize.TokenError('Error while accessing the token database.', 'server_error'));
+  }
+  return done(null, accesstoken, null);
 }
 
 // user authorization endpoint
@@ -483,16 +407,17 @@ function exchangerefreshtoken(client, mytoken, scope, done) {
  * @param {*} done callback function
  */
 function authorizationValidate(clientID, redirectURI, done) {
-  Client.findOne({clientID: clientID}, function(err, client) {
-    if (err) {
-      return done(err);
-    }
-    // vulnerability: redirectURI is not validated
-    if (client != null) {
-      return done(null, client, redirectURI);
-    }
-    return done(null, false);
-  });
+  let client;
+  try {
+    client = clients.getClient(clientID);
+  } catch (err) {
+    return done(err);
+  }
+  // vulnerability: redirectURI is not validated
+  if (client != null) {
+    return done(null, client, redirectURI);
+  }
+  return done(null, false);
 }
 
 /**
@@ -503,7 +428,7 @@ function authorizationValidate(clientID, redirectURI, done) {
  * @return {*} returns the result of the callback function
  */
 function authorizationAutoapprove(client, user, done) {
-  if (client.isTrusted()) {
+  if (client.trusted) {
     // Auto-approve
     return done(null, true);
   }
@@ -534,45 +459,59 @@ function renderdialog(req, res) {
  * @param {*} res response
  */
 function tokeninfo(req, res) {
-  let token = req.query.access_token;
-  AccessToken.findOne({token: token}, function(err, token) {
-    if (err != null || token == null) {
-      res.status(400);
-      return res.json({error: 'invalid_token'});
-    }
-    creationDate = Math.floor(new Date(token.created_at).getTime()/1000);
-    const expirationLeft = Math.floor(
-        (
-          // creation date in seconds since epoch
-          creationDate
-          // expiry time in seconds; e.g. 3600
-          + token.expires_in
-          // current time in seconds since epoch
-          - Math.floor(Date.now()/1000)
-        )
-    );
-    let client = token.clientID;
-    Client.findOne({clientID: client}, function(err, client) {
-      if (err != null || client == null) {
-        res.status(400);
-        return res.json({error: 'invalid_token'});
-      }
-      User.findOne({_id: token.user}, function(err, user) {
-        if (err != null || user == null) {
-          res.status(400);
-          return res.json({error: 'invalid_token'});
-        }
-        return res.json({
-          iss: req.headers.host, // insecure: JSON injection
-          sub: token.user,
-          aud: client.clientID,
-          azp: client.clientID,
-          exp: expirationLeft,
-          iat: creationDate,
-          name: user.username,
-        });
-      });
-    });
+  let accessToken = req.query.access_token;
+  let token;
+  try {
+    token = oauth.getAccessToken(accessToken);
+  } catch (err) {
+    res.status(400);
+    return res.json({error: 'invalid_token'});
+  }
+  if (token == null) {
+    res.status(400);
+    return res.json({error: 'invalid_token'});
+  }
+  let creationDate = Math.floor(oauth.parseCreatedAt(token.created_at));
+  const expirationLeft = Math.floor(
+      (
+        // creation date in seconds since epoch
+        creationDate
+        // expiry time in seconds; e.g. 3600
+        + token.expires_in
+        // current time in seconds since epoch
+        - Math.floor(Date.now()/1000)
+      )
+  );
+  let client;
+  try {
+    client = clients.getClient(token.client_id);
+  } catch (err) {
+    res.status(400);
+    return res.json({error: 'invalid_token'});
+  }
+  if (client == null) {
+    res.status(400);
+    return res.json({error: 'invalid_token'});
+  }
+  let user;
+  try {
+    user = users.getUserById(token.user_id);
+  } catch (err) {
+    res.status(400);
+    return res.json({error: 'invalid_token'});
+  }
+  if (user == null) {
+    res.status(400);
+    return res.json({error: 'invalid_token'});
+  }
+  return res.json({
+    iss: req.headers.host, // insecure: JSON injection
+    sub: token.user_id,
+    aud: client.client_id,
+    azp: client.client_id,
+    exp: expirationLeft,
+    iat: creationDate,
+    name: user.username,
   });
 }
 
