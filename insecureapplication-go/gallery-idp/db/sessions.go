@@ -13,10 +13,11 @@ import (
 // POST back to its transaction is the transaction_id hidden field, which is
 // itself just an opaque id with no binding to the browser that requested it.
 type PendingAuthz struct {
-	ClientID    string `json:"client_id"`
-	RedirectURI string `json:"redirect_uri"`
-	Scope       string `json:"scope"`
-	State       string `json:"state"`
+	ClientID     string `json:"client_id"`
+	RedirectURI  string `json:"redirect_uri"`
+	Scope        string `json:"scope"`
+	State        string `json:"state"`
+	ResponseType string `json:"response_type"`
 }
 
 type Session struct {

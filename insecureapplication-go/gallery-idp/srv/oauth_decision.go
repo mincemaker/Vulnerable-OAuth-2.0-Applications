@@ -29,7 +29,7 @@ func (s *Server) handleDecision(w http.ResponseWriter, r *http.Request) {
 
 	if r.FormValue("cancel") != "" {
 		noCacheHeaders(w)
-		dest := pending.RedirectURI + "?error=access_denied"
+		dest := pending.RedirectURI + redirectSeparator(wantsToken(pending.ResponseType)) + "error=access_denied"
 		if pending.State != "" {
 			dest += "&state=" + pending.State
 		}
@@ -47,5 +47,5 @@ func (s *Server) handleDecision(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login", http.StatusFound)
 		return
 	}
-	s.grantAndRedirect(w, r, client, user, pending.RedirectURI, pending.Scope, pending.State)
+	s.grantAndRedirect(w, r, client, user, pending.RedirectURI, pending.Scope, pending.State, pending.ResponseType)
 }
