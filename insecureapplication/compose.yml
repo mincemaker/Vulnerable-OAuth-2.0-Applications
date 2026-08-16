@@ -1,13 +1,12 @@
-version: '3'
 services:
   # gallery is now self-seeding SQLite (node:sqlite, built into Node -- no
   # separate DB server, no native npm build step). It replaces the
   # gallery + mongodb + mongoseed services that used to be here; no
-  # persistent volume is attached so every `docker-compose up` starts from
+  # persistent volume is attached so every `docker compose up` starts from
   # the same seed data, matching mongoseed's old behavior of re-restoring
   # on every startup. See insecureapplication-go/z-ai/gallery-sqlite-plan.md.
   gallery:
-    build: gallery/.
+    build: ./gallery
     container_name: "gallery"
     environment:
       - CLIENT_ID=${CLIENT_ID:-photoprint}
@@ -15,7 +14,7 @@ services:
     ports:
       - "3005:3005"
   photoprint:
-    build: photoprint/.
+    build: ./photoprint
     container_name: "photoprint"
     environment:
       - CLIENT_ID=${CLIENT_ID:-photoprint}
@@ -26,7 +25,7 @@ services:
     depends_on:
       - gallery
   attacker:
-    build: attacker/.
+    build: ./attacker
     container_name: "attacker"
     environment:
       - CLIENT_ID=${CLIENT_ID:-photoprint}
@@ -42,5 +41,3 @@ services:
     ports:
       - "4444:4444"
       - "5900:5900"
-#volumes:
-#  mongodb: 

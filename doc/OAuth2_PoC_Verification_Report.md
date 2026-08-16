@@ -11,7 +11,7 @@
 - 認可/リソースサーバ (Gallery): `http://gallery.127.0.0.1.nip.io:3005`
 - クライアントWebアプリ (PhotoPrint): `http://photoprint.127.0.0.1.nip.io:3000`
 - 攻撃者サービス (Attacker): `http://attacker.127.0.0.1.nip.io:1337`
-- クライアントID / シークレット: `photoprint` / `secret`（`docker-compose.yml` のデフォルト値）
+- クライアントID / シークレット: `photoprint` / `secret`（`compose.yml` のデフォルト値）
 - 被害者アカウント: `koen` / `password`（DBシード登録済みの既存ユーザー）
 - 攻撃者アカウント: `attacker` / `attackerpass`（`gallery` の `/users/register` から新規登録）
 
