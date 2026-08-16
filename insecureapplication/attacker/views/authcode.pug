@@ -4,3 +4,16 @@ block content
   .container
     h2 Authorization Code
     p I stole the following authorization code from you: #{code}
+    #implicit-token
+    script.
+      (function () {
+        // The Implicit Grant/hybrid response puts its params in the URL
+        // fragment, which browsers never send to the server -- so this has
+        // to be read client-side. Any script on this page (or browser
+        // history, or a malicious extension) can do the same.
+        var params = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+        var token = params.get('access_token');
+        if (!token) return;
+        document.getElementById('implicit-token').textContent =
+          'I also stole the following access token straight out of your browser\'s URL fragment (Implicit Grant): ' + token;
+      })();

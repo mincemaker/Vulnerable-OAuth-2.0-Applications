@@ -13,6 +13,11 @@ block content
         | Open redirect to example.com if clients are auto-approved: Please click
         a(href=openRedirectUrl) here
         | .
+    h3 Switch to Implicit Grant (response_type=token)
+    p
+      | photoprint is a server-side app that should only ever use the authorization code flow, but gallery never checks that. Please click
+      a(href=implicitGrantUrl) here
+      | to request an access token directly (no code, no client secret) via the URL fragment.
     h3 Weak Authorization Codes
     p
       | Bruteforce authorization codes at the token endpoint
