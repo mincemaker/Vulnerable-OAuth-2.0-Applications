@@ -1,4 +1,6 @@
 const oauth2orize = require('oauth2orize');
+const url = require('url');
+const qs = require('querystring');
 
 const Client = require('../models/client');
 const User = require('../models/user');
@@ -39,6 +41,26 @@ server.grant(oauth2orize.grant.code({scopeSeperator: [' ', ',']}, grantcode));
 
 // insecure: scope not used
 // server.grant(oauth2orize.grant.code(grantcode));
+
+// response_types_supported (see wellknown() below) has always advertised
+// "token" and "code token" alongside "code", but until now no grant was
+// ever registered for them, so oauth2orize's own request parser rejected
+// both with an unhandled 501 unsupported_response_type -- the advertised
+// support was never real. Registering these two closes that gap the same
+// way insecureapplication-go/gallery-idp's grantAndRedirect does: neither
+// grant restricts which client may request it (see PoC8 in
+// doc/OAuth2_PoC_Verification_Report.md), and consistent with RFC 6749
+// §4.2.2, the implicit grant never issues a refresh_token.
+//
+// Implicit Grant: response_type=token, access_token only, delivered via
+// the redirect URI fragment.
+server.grant(oauth2orize.grant.token({scopeSeperator: [' ', ',']}, granttoken));
+// Hybrid grant: response_type=code token, both an authorization_code and
+// an access_token, also delivered via the fragment. oauth2orize ships no
+// bundled module for this (only lib/grant/code.js and lib/grant/token.js),
+// so it's hand-rolled below as hybridGrant(), following the same
+// request/response/error module shape as the bundled ones.
+server.grant(hybridGrant(granthybrid));
 
 // Exchange authorization codes for access tokens.
 server.exchange(oauth2orize.exchange.authorizationCode(exchangecode));
@@ -96,6 +118,202 @@ function grantcode(client, redirectURI, user, response, done) {
     }
     done(null, code);
   });
+}
+
+/**
+ * Grants an access token directly (Implicit Grant, response_type=token).
+ * Mirrors grantcode() but skips the authorization_code step entirely, and
+ * -- per RFC 6749 §4.2.2 -- never issues a refresh_token, since there is no
+ * client authentication anywhere in this flow.
+ * @param {*} client client for which to grant the token
+ * @param {*} user the user for which to grant the token
+ * @param {*} ares approved scope, as parsed from the original request
+ * @param {*} done callback function
+ */
+function granttoken(client, user, ares, done) {
+  // vulnerability: weak access tokens, same generator as grantcode/exchangecode
+  let token = Math.floor(Math.random() * (100000-1) +1) + '';
+  new AccessToken({
+    clientID: client.clientID,
+    user: user.id,
+    token: token,
+    scope: ares.scope,
+  }).save(function(err, result) {
+    if (err) {
+      return done(err);
+    }
+    done(null, token);
+  });
+}
+
+/**
+ * Grants both an authorization code and an access token
+ * (response_type=code token). Mirrors grantcode() + granttoken() combined.
+ * @param {*} client client for which to grant the code+token
+ * @param {*} redirectURI redirect uri at which to deliver the code
+ * @param {*} user the user for which to grant the code+token
+ * @param {*} ares approved scope, as parsed from the original request
+ * @param {*} done callback function
+ */
+function granthybrid(client, redirectURI, user, ares, done) {
+  let code = Math.floor(Math.random() * (100000-1) +1);
+  let token = Math.floor(Math.random() * (100000-1) +1) + '';
+  new AuthorizationCode({
+    clientID: client.clientID,
+    redirectURI: redirectURI,
+    user: user.id,
+    code: code,
+    scope: ares.scope,
+  }).save(function(err, result) {
+    if (err) {
+      return done(err);
+    }
+    new AccessToken({
+      clientID: client.clientID,
+      user: user.id,
+      token: token,
+      scope: ares.scope,
+    }).save(function(err, result) {
+      if (err) {
+        return done(err);
+      }
+      done(null, code, token);
+    });
+  });
+}
+
+/**
+ * Encodes params into the URL fragment of txn.redirectURI and redirects
+ * there. Authorization responses that carry a token are delivered this way
+ * per RFC 6749 §4.2.2 -- oauth2orize ships this exact logic for its bundled
+ * "token" grant (lib/response/fragment.js), but doesn't expose it publicly,
+ * so hybridGrant() below needs its own copy.
+ * @param {*} txn oauth2orize transaction (req.oauth2)
+ * @param {*} res response
+ * @param {*} params params to encode into the fragment
+ */
+function respondFragment(txn, res, params) {
+  let parsed = url.parse(txn.redirectURI);
+  parsed.hash = qs.stringify(params);
+  res.redirect(url.format(parsed));
+}
+
+/**
+ * Builds an oauth2orize grant module for response_type=code token. There is
+ * no bundled equivalent (oauth2orize only ships lib/grant/code.js and
+ * lib/grant/token.js), so this follows the same
+ * {name, request, response, error} shape those two use, registered via
+ * `server.grant(hybridGrant(issue))`.
+ * @param {*} issue grant callback: (client, redirectURI, user, ares, done)
+ * @return {*} oauth2orize grant module
+ */
+function hybridGrant(issue) {
+  function request(req) {
+    let clientID = req.query.client_id;
+    let redirectURI = req.query.redirect_uri;
+    let scope = req.query.scope;
+    let state = req.query.state;
+    if (!clientID) {
+      throw new oauth2orize.AuthorizationError(
+          'Missing required parameter: client_id', 'invalid_request');
+    }
+    if (scope) {
+      let separated = scope.split(' ');
+      if (separated.length == 1) {
+        separated = scope.split(',');
+      }
+      scope = separated.length > 1 ? separated : [scope];
+    }
+    return {clientID: clientID, redirectURI: redirectURI, scope: scope, state: state};
+  }
+
+  function response(txn, res, complete, next) {
+    if (!txn.res.allow) {
+      let params = {error: 'access_denied'};
+      if (txn.req && txn.req.state) {
+        params.state = txn.req.state;
+      }
+      return respondFragment(txn, res, params);
+    }
+    issue(txn.client, txn.redirectURI, txn.user, txn.res, function(err, code, accessToken) {
+      if (err) {
+        return next(err);
+      }
+      let params = {code: code, access_token: accessToken, token_type: 'Bearer'};
+      if (txn.req && txn.req.state) {
+        params.state = txn.req.state;
+      }
+      complete(function(err) {
+        if (err) {
+          return next(err);
+        }
+        return respondFragment(txn, res, params);
+      });
+    });
+  }
+
+  function errorHandler(err, txn, res, next) {
+    let params = {error: err.code || 'server_error'};
+    if (err.message) {
+      params.error_description = err.message;
+    }
+    if (txn.req && txn.req.state) {
+      params.state = txn.req.state;
+    }
+    return respondFragment(txn, res, params);
+  }
+
+  // A string (not an array) is required here: oauth2orize's UnorderedList
+  // splits a string on spaces internally, but server.grant()'s "sig:
+  // grant(mod)" branch re-checks `typeof mod.name == 'object'` on whatever
+  // is passed through -- and an array *is* typeof 'object' in JS, so an
+  // array name would silently be mistaken for another module object and
+  // never get registered.
+  return {name: 'code token', request: request, response: response, error: errorHandler};
+}
+
+/**
+ * Rejects a request whose response_type isn't exactly "code", "token", or
+ * "code token" (in either order) before oauth2orize ever sees it.
+ * oauth2orize's own request parser already rejects unrecognized
+ * response_type values, but does so by calling next(err) with no
+ * error-handling middleware registered on this route (see routes/oauth.js),
+ * which surfaces as a raw 501/400 framework error page instead of the RFC
+ * 6749 §4.1.2.1 / §4.2.2.1 redirect (invalid_request /
+ * unsupported_response_type) a client actually expects.
+ * @param {*} req request
+ * @param {*} res response
+ * @param {*} next next middleware
+ * @return {*} result of invoking next(), or the error redirect
+ */
+function validateResponseType(req, res, next) {
+  let responseType = req.query.response_type;
+  let redirectURI = req.query.redirect_uri;
+  let state = req.query.state;
+
+  let errorCode = null;
+  if (!responseType) {
+    errorCode = 'invalid_request';
+  } else {
+    let parts = responseType.split(' ').filter(Boolean);
+    let allSupported = parts.length > 0 && parts.every(function(p) {
+      return p === 'code' || p === 'token';
+    });
+    if (!allSupported) {
+      errorCode = 'unsupported_response_type';
+    }
+  }
+  if (!errorCode) {
+    return next();
+  }
+
+  let params = {error: errorCode};
+  if (state) {
+    params.state = state;
+  }
+  let wantsToken = (responseType || '').split(' ').indexOf('token') !== -1;
+  let separator = wantsToken ? '#' : '?';
+  return res.redirect(redirectURI + separator + qs.stringify(params));
 }
 
 // Exchange authorization codes for access tokens.  The callback accepts the
@@ -406,6 +624,7 @@ function wellknown(req, res) {
 exports = module.exports = {
   decision: server.decision(decision),
   renderdialog: renderdialog,
+  validateResponseType: validateResponseType,
   authorization: server.authorization(
       authorizationValidate,
       authorizationAutoapprove

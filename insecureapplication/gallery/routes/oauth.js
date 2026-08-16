@@ -19,6 +19,11 @@ let router = new express.Router();
 // first, and rendering the `dialog` view.
 router.get('/authorize',
     login.ensureLoggedIn(),
+    // validateResponseType turns an invalid/unsupported response_type into
+    // an RFC 6749-shaped error redirect; without it, oauth2orize's own
+    // request parser would reject it via next(err) with nothing downstream
+    // to catch it, surfacing as a raw 501/400 error page instead.
+    oauthcontroller.validateResponseType,
     oauthcontroller.authorization,
     oauthcontroller.renderdialog
 );
