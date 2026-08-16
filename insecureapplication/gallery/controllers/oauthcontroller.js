@@ -583,10 +583,17 @@ function tokeninfo(req, res) {
  * @return {*} configuration
  */
 function wellknown(req, res) {
-  host = req.headers.host;
-  protocol = req.protocol;
-  fullhost = protocol + '://' + host;
-  config = {
+  // pre-existing bug fix: these were unqualified assignments (no
+  // let/const), which silently tried to reassign the module-level
+  // `const config = require('../config/config')` imported at the top of
+  // this file -- every call threw "TypeError: Assignment to constant
+  // variable" and this endpoint 500'd unconditionally. Fixed by scoping
+  // these locally and renaming the response object so it no longer shadows
+  // the import; no behavioral change to the (still-vulnerable) content.
+  let host = req.headers.host;
+  let protocol = req.protocol;
+  let fullhost = protocol + '://' + host;
+  let wellKnownConfig = {
     'issuer': fullhost, // insecure: JSON injection
     'token_endpoint': fullhost+'/token',
     'introspection_endpoint': fullhost+'/token/introspect',
@@ -618,7 +625,7 @@ function wellknown(req, res) {
     'request_uri_parameter_supported': false,
     'require_request_uri_registration': false,
   };
-  return res.json(config);
+  return res.json(wellKnownConfig);
 }
 
 exports = module.exports = {
