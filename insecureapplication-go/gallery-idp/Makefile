@@ -4,7 +4,7 @@
 #   CLIENT_ID=photoprint CLIENT_SECRET=secret make dev
 IMAGE_NAME ?= gallery-idp:latest
 
-.PHONY: build build-frontend dev test clean install docker-build
+.PHONY: build build-frontend dev dev-reset test clean install docker-build
 
 build: build-frontend
 	go build -o gallery-idp ./cmd/gallery-idp
@@ -16,6 +16,9 @@ build-frontend:
 
 dev:
 	go run ./cmd/gallery-idp
+
+dev-reset:
+	go run ./cmd/gallery-idp -reset-db
 
 test:
 	go test ./...

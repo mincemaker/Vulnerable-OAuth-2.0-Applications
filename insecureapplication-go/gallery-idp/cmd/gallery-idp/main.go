@@ -35,9 +35,18 @@ func main() {
 	listen := flag.String("listen", "127.0.0.1:3005", "address to listen on")
 	dbPath := flag.String("db", "./gallery-idp.sqlite3", "path to the sqlite database file")
 	uploadsDir := flag.String("uploads", "./public/uploads", "directory for uploaded/served photo files")
+	resetDB := flag.Bool("reset-db", false, "delete existing database file before starting")
 	flag.Parse()
 
 	log := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	if *resetDB && *dbPath != "" && *dbPath != ":memory:" {
+		if err := os.Remove(*dbPath); err != nil && !os.IsNotExist(err) {
+			log.Error("could not reset database", "err", err)
+			os.Exit(1)
+		}
+		log.Info("reset database file", "path", *dbPath)
+	}
 
 	if err := os.MkdirAll(*uploadsDir, 0o755); err != nil {
 		log.Error("could not create uploads dir", "err", err)

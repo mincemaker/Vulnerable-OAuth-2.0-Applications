@@ -14,8 +14,9 @@ For Docker/Podman Compose, see [`../insecureapplication/README.md`](../insecurea
 Each service is a self-contained binary; run them from two terminals.
 
 ```bash
-# 1. Gallery (IdP / Resource Server) -- self-seeds its SQLite DB on first run
+# 1. Gallery (IdP / Resource Server) -- self-seeds its SQLite DB on startup
 cd gallery-idp && make dev
+# (To start with a clean database and re-seed from scratch: `make dev-reset` or `go run ./cmd/gallery-idp -reset-db`)
 
 # 2. PhotoPrint (Client)
 cd photoprint-client && make dev

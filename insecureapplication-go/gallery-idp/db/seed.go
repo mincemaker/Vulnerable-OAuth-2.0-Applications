@@ -29,9 +29,19 @@ func (d *DB) Seed() error {
 }
 
 func (d *DB) seedClients() error {
+	targetID := os.Getenv("CLIENT_ID")
+	if targetID == "" {
+		targetID = "photoprint"
+	}
 	existing, err := d.GetClient("photoprint")
 	if err != nil {
 		return err
+	}
+	if existing == nil && targetID != "photoprint" {
+		existing, err = d.GetClient(targetID)
+		if err != nil {
+			return err
+		}
 	}
 	if existing == nil {
 		if err := d.CreateClient("photoprint", "PhotoPrint", "secret", false, ""); err != nil {
@@ -130,6 +140,16 @@ func (d *DB) applyClientEnvOverride() error {
 	}
 	if clientID == "photoprint" && clientSecret == "secret" {
 		return nil // no-op, matches seeded defaults
+	}
+	existing, err := d.GetClient(clientID)
+	if err != nil {
+		return err
+	}
+	if existing != nil {
+		if existing.ClientSecret != clientSecret {
+			return d.UpdateClientFields(clientID, map[string]string{"client_secret": clientSecret})
+		}
+		return nil
 	}
 	return d.UpsertClientCredentials("photoprint", clientID, clientSecret)
 }
