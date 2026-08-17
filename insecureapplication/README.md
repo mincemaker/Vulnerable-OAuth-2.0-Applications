@@ -17,7 +17,7 @@ To run the applications, you can use either **Docker Compose** or run them **dir
    - **Gallery (IdP/Resource Server)**: [http://gallery.127.0.0.1.nip.io:3005](http://gallery.127.0.0.1.nip.io:3005)
    - **Attacker Site (PoC Demos)**: [http://attacker.127.0.0.1.nip.io:1337](http://attacker.127.0.0.1.nip.io:1337)
 
-   *(Optional: You can also connect via VNC to `localhost:5900` with password `secret` to use the containerized Firefox browser).*
+   *(Optional: You can also open [http://localhost:7900](http://localhost:7900) in your browser with password `secret` to use the containerized Firefox browser via noVNC).*
 
 ## Option B: Running on Host (Node.js >= 22.13)
 
