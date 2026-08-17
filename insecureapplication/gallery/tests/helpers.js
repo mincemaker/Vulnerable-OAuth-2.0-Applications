@@ -132,6 +132,30 @@ async function getAuthorizationCode(jar, extra = {}) {
   return code;
 }
 
+// Registers a brand-new OAuth client with trusted=true via the (vulnerable,
+// privilege-escalated -- any logged-in user may do this) self-service
+// POST /clients endpoint. jar must already be logged in.
+async function registerTrustedClient(jar) {
+  const clientId = `trustedtest_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
+  const res = await fetchNoRedirect(jar, `${GALLERY}/clients`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Accept: 'application/json',
+    },
+    body: new URLSearchParams({
+      clientID: clientId,
+      name: 'trusted-test-client',
+      clientSecret: 'secret',
+      trusted: 'true',
+    }),
+  });
+  if (res.status !== 200) {
+    throw new Error(`registerTrustedClient expected 200, got ${res.status}`);
+  }
+  return clientId;
+}
+
 async function exchangeCode(code, {clientId = CLIENT_ID, clientSecret = CLIENT_SECRET, redirectUri = REDIRECT_URI} = {}) {
   const res = await fetch(`${GALLERY}/oauth/token`, {
     method: 'POST',
@@ -168,6 +192,6 @@ function locationParams(res) {
 module.exports = {
   GALLERY, PHOTOPRINT, CLIENT_ID, CLIENT_SECRET,
   MALICIOUS_CLIENT_ID, MALICIOUS_CLIENT_SECRET, REDIRECT_URI,
-  makeJar, fetchNoRedirect, login, registerFreshUser, authorize,
+  makeJar, fetchNoRedirect, login, registerFreshUser, registerTrustedClient, authorize,
   getAuthorizationCode, exchangeCode, locationParams,
 };

@@ -9,8 +9,21 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   GALLERY, CLIENT_ID, REDIRECT_URI,
-  makeJar, fetchNoRedirect, login, authorize, exchangeCode, locationParams,
+  makeJar, fetchNoRedirect, login, registerTrustedClient, authorize, exchangeCode, locationParams,
 } = require('./helpers');
+
+// Builds the same /oauth/authorize URL authorize() would, without driving
+// the dialog -- these tests need to inspect the pre-login redirect.
+function authorizeURL(clientId, responseType, extra = {}) {
+  return `${GALLERY}/oauth/authorize?` + new URLSearchParams({
+    response_type: responseType,
+    client_id: clientId,
+    redirect_uri: REDIRECT_URI,
+    scope: 'view_gallery',
+    state: 's1',
+    ...extra,
+  });
+}
 
 test('authorization code flow (baseline, unaffected by the grant additions)', async (t) => {
   const jar = makeJar();
@@ -129,6 +142,89 @@ test('.well-known/oauth-authorization-server and openid-configuration are served
     // Load-bearing claim this whole test file exists to keep honest: every
     // advertised response_type must actually work (see the tests above).
   }
+});
+
+// login.ensureLoggedIn() (connect-ensure-login) stashes req.session.returnTo
+// = req.originalUrl before bouncing an unauthenticated request to /login,
+// and passport's successReturnToOrRedirect: '/' consumes + deletes it only
+// on a *successful* authentication -- see middlewares/auth.js's
+// isLocalAuthenticated. These tests pin that behavior down as a regression
+// guard for the Go port (insecureapplication-go/gallery-idp), which had
+// dropped it entirely: an unauthenticated /authorize hit landed the user on
+// "/" -> /photos/<user> after login instead of back on the consent dialog.
+for (const responseType of ['code', 'token', 'code token']) {
+  test(`unauthenticated /oauth/authorize (response_type=${responseType}) returns to the same authorize request after login, not to "/"`, async (t) => {
+    const jar = makeJar();
+    const authURL = authorizeURL(CLIENT_ID, responseType);
+
+    const preLoginRes = await fetchNoRedirect(jar, authURL);
+    assert.equal(preLoginRes.status, 302);
+    assert.equal(preLoginRes.headers.get('location'), '/login',
+        'unauthenticated hit must bounce to /login');
+
+    const loginRes = await login(jar);
+    assert.equal(loginRes.status, 302);
+    const returnedTo = loginRes.headers.get('location');
+    assert.ok(returnedTo && returnedTo.includes('/oauth/authorize') && returnedTo.includes('state=s1'),
+        `expected login to return to the original authorize request, got ${JSON.stringify(returnedTo)}`);
+
+    const dialogRes = await fetchNoRedirect(jar, new URL(returnedTo, GALLERY).toString());
+    assert.equal(dialogRes.status, 200,
+        'must land back on the consent dialog, not silently redirect elsewhere');
+    const html = await dialogRes.text();
+    assert.match(html, /name="transaction_id"/);
+  });
+}
+
+test('unauthenticated /oauth/authorize for a trusted client skips the consent dialog and grants directly after login', async (t) => {
+  const setupJar = makeJar();
+  await login(setupJar);
+  const trustedClientId = await registerTrustedClient(setupJar);
+
+  const jar = makeJar();
+  const preLoginRes = await fetchNoRedirect(jar, authorizeURL(trustedClientId, 'code'));
+  assert.equal(preLoginRes.status, 302);
+  assert.equal(preLoginRes.headers.get('location'), '/login');
+
+  const loginRes = await login(jar);
+  const returnedTo = loginRes.headers.get('location');
+  assert.ok(returnedTo && returnedTo.includes('/oauth/authorize'));
+
+  const res = await fetchNoRedirect(jar, new URL(returnedTo, GALLERY).toString());
+  assert.equal(res.status, 302, 'a trusted client must skip the consent dialog entirely');
+  const {params} = locationParams(res);
+  assert.ok(params.get('code'), 'expected an authorization code issued directly');
+  assert.equal(params.get('state'), 's1');
+});
+
+test('a failed login attempt does not consume the pending returnTo -- the next successful login still returns to /oauth/authorize', async (t) => {
+  const jar = makeJar();
+  await fetchNoRedirect(jar, authorizeURL(CLIENT_ID, 'code'));
+
+  const failedRes = await fetchNoRedirect(jar, `${GALLERY}/login`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: new URLSearchParams({username: 'koen', password: 'wrong-password'}),
+  });
+  assert.equal(failedRes.headers.get('location'), '/login',
+      'a failed login must not consume returnTo by redirecting elsewhere');
+
+  const loginRes = await login(jar);
+  const returnedTo = loginRes.headers.get('location');
+  assert.ok(returnedTo && returnedTo.includes('/oauth/authorize') && returnedTo.includes('state=s1'),
+      `expected the retried login to still return to the original authorize request, got ${JSON.stringify(returnedTo)}`);
+});
+
+test('logging into the IdP directly (no pending OAuth request) is unaffected by returnTo -- still lands on "/" -> /photos/<user>', async (t) => {
+  const jar = makeJar();
+  const res = await login(jar);
+  assert.equal(res.headers.get('location'), '/', 'a bare login must still redirect to "/"');
+
+  const indexRes = await fetchNoRedirect(jar, `${GALLERY}/`);
+  assert.equal(indexRes.status, 302);
+  // routes/index.js's res.redirect('photos/' + user) is relative (no
+  // leading slash) -- pre-existing, unrelated to returnTo.
+  assert.equal(indexRes.headers.get('location'), 'photos/koen');
 });
 
 test('GET /token/introspect reports a live access_token', async (t) => {
