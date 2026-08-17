@@ -38,6 +38,20 @@ func browserFacingAuthorizeURL(rawAuthorizeURL, tokenHost string, r *http.Reques
 	return rawAuthorizeURL
 }
 
+// browserFacingGalleryBase resolves a browser-reachable base URL for gallery from
+// either GALLERY_BROWSER_URL or the incoming request's Host header (rewriting
+// photoprint:3000 -> gallery:3005 for nip.io/localhost setups), matching
+// attacker/app.js's galleryBrowserBase.
+func (s *Server) browserFacingGalleryBase(r *http.Request) string {
+	if s.Config.GalleryBrowserURL != "" {
+		return s.Config.GalleryBrowserURL
+	}
+	if !strings.HasPrefix(r.Host, "photoprint:") {
+		return requestProtocol(r) + "://" + rewriteGalleryHost(r.Host)
+	}
+	return s.Config.TokenHost
+}
+
 // rewriteGalleryHost replicates
 // req.get('Host').replace(/^photoprint/, 'gallery').replace(/:3000$/, ':3005').
 func rewriteGalleryHost(host string) string {
@@ -45,3 +59,4 @@ func rewriteGalleryHost(host string) string {
 	host = trailingPort3000.ReplaceAllString(host, ":3005")
 	return host
 }
+

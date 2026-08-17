@@ -60,7 +60,7 @@ func (s *Server) handleSelectPhotos(w http.ResponseWriter, r *http.Request) {
 	sess.Images = images
 	s.render(w, http.StatusOK, "selectphotos", map[string]any{
 		"Images":   images,
-		"Basepath": s.Config.TokenHost + "/photos/me/",
+		"Basepath": s.browserFacingGalleryBase(r) + "/photos/me/",
 	})
 }
 
@@ -97,6 +97,6 @@ func (s *Server) handleOrder(w http.ResponseWriter, r *http.Request) {
 		"SelectedPhotos": selected,
 		"Price":          price,
 		"TotalPrice":     totalPrice,
-		"Basepath":       s.Config.TokenHost + "/photos/me/",
+		"Basepath":       s.browserFacingGalleryBase(r) + "/photos/me/",
 	})
 }
