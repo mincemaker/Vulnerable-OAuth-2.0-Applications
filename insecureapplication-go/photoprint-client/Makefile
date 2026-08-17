@@ -10,7 +10,7 @@ build:
 	go build -o photoprint-client ./cmd/photoprint-client
 
 dev:
-	go run ./cmd/photoprint-client -listen :3000
+	go run ./cmd/photoprint-client
 
 test:
 	go test ./...

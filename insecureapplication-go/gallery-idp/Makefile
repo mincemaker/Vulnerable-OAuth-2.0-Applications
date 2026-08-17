@@ -15,7 +15,7 @@ build: build-frontend
 build-frontend:
 
 dev:
-	go run ./cmd/gallery-idp -listen :3005
+	go run ./cmd/gallery-idp
 
 test:
 	go test ./...

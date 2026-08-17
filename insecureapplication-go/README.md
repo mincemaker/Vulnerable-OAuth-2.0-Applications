@@ -27,7 +27,7 @@ Then open [http://photoprint.127.0.0.1.nip.io:3000](http://photoprint.127.0.0.1.
 
 ### Configuration
 
-Both services read config from environment variables (`CLIENT_ID`, `CLIENT_SECRET`, `SESSION_SECRET`, `GALLERY_URL`, `GALLERY_BROWSER_URL`); see each `Makefile` for the exact list and defaults. The defaults already work for the `*.127.0.0.1.nip.io` setup above, so no configuration is required to get started.
+Both services read config from environment variables (`CLIENT_ID`, `CLIENT_SECRET`, `SESSION_SECRET`, `GALLERY_URL`, `GALLERY_BROWSER_URL`, `PHOTOPRINT_BROWSER_URL`); see each `Makefile` for the exact list and defaults. The defaults already work for the `*.127.0.0.1.nip.io` setup above, so no configuration is required to get started.
 
 If you need to override something (e.g. `gallery-idp` isn't at `localhost:3005`), the repo-root [`mise.toml.sample`](../mise.toml.sample) is the single source of dev config for both services — copy it to `mise.toml` and mise's shell activation applies it in any subdirectory. Without mise, prefix the variable inline instead:
 

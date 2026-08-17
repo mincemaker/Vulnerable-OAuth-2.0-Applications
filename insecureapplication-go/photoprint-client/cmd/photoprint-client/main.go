@@ -7,15 +7,31 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 
 	"photoprint-client/srv"
 )
 
+func browserURL(envVal, listen string) string {
+	if envVal != "" {
+		return envVal
+	}
+	host, port, err := net.SplitHostPort(listen)
+	if err != nil {
+		return "http://" + listen
+	}
+	if host == "" {
+		host = "localhost"
+	}
+	return "http://" + host + ":" + port
+}
+
 func main() {
-	listen := flag.String("listen", ":3000", "address to listen on")
+	listen := flag.String("listen", "127.0.0.1:3000", "address to listen on")
 	flag.Parse()
 
 	log := slog.New(slog.NewTextHandler(os.Stdout, nil))
@@ -38,6 +54,7 @@ func main() {
 	server := srv.New(cfg, tmpl, log)
 
 	log.Info("photoprint-client listening", "addr", *listen, "gallery", cfg.TokenHost)
+	fmt.Println("Open " + browserURL(os.Getenv("PHOTOPRINT_BROWSER_URL"), *listen) + " in your browser")
 	if err := http.ListenAndServe(*listen, server.Handler()); err != nil {
 		log.Error("server exited", "err", err)
 		os.Exit(1)
