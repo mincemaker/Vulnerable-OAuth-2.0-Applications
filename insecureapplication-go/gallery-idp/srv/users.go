@@ -38,9 +38,53 @@ func (s *Server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login", http.StatusFound)
 		return
 	}
-	sess := sessionFromCtx(r)
-	if err := s.DB.SetSessionUser(sess.ID, u.ID); err != nil {
+
+	// Session-fixation defense: never carry the pre-login session id (which
+	// may have been seeded by an attacker) across the authentication
+	// boundary. A brand-new row is issued and cookied instead; the old row
+	// is deliberately left in place, unlinked from anything -- matches this
+	// app's "never delete spent state" convention elsewhere (auth codes and
+	// access tokens are never deleted either).
+	//
+	// If an OAuth authorization request was stashed on the old session
+	// before we got here (see handleAuthorize's unauthenticated branch) and
+	// hasn't expired, carry it over to the new session and resume it
+	// instead of landing on the homepage. This handler deliberately knows
+	// nothing about the request's contents (client_id, Trusted, ...) -- it
+	// only checks whether one is pending -- so it can't be tricked into
+	// redirecting anywhere but its own /authorize.
+	oldSess := sessionFromCtx(r)
+	var resumeTxID string
+	var resumeEntry db.PendingAuthz
+	for txID, p := range oldSess.PendingAuthz {
+		if p.AwaitingLoginValid() {
+			resumeTxID, resumeEntry = txID, p
+			break
+		}
+	}
+
+	newID := newOpaqueID()
+	if err := s.DB.CreateSession(newID); err != nil {
 		s.renderError(w, r, http.StatusInternalServerError, "session error")
+		return
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionCookieName,
+		Value:    newID,
+		Path:     "/",
+		HttpOnly: true,
+	})
+	if err := s.DB.SetSessionUser(newID, u.ID); err != nil {
+		s.renderError(w, r, http.StatusInternalServerError, "session error")
+		return
+	}
+
+	if resumeTxID != "" {
+		if err := s.DB.SetPendingAuthz(newID, map[string]db.PendingAuthz{resumeTxID: resumeEntry}); err != nil {
+			s.renderError(w, r, http.StatusInternalServerError, "session error")
+			return
+		}
+		http.Redirect(w, r, "/authorize", http.StatusFound)
 		return
 	}
 	http.Redirect(w, r, "/", http.StatusFound)

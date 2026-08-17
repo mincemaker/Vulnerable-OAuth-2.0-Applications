@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"time"
 
 	"gallery-idp/db"
 )
@@ -38,13 +39,38 @@ var scopeMap = map[string]string{
 // to Implicit Grant (response_type=token) or the hybrid (response_type=code
 // token) simply by changing the query parameter, with no server-side
 // allowlist to stop it. See doc/OAuth2_PoC_Verification_Report.md PoC8.
+//
+// Unlike the vulnerabilities above, this handler owns its own
+// authentication gate rather than being wrapped by requireSession: an
+// unauthenticated request stashes the parsed authorization request against
+// the session (db.PendingAuthz.AwaitingLogin) before bouncing to /login, so
+// that POST /login (handleLoginSubmit) can resume straight back into this
+// handler afterwards instead of losing it. A GET /authorize from an
+// already-authenticated user resumes whenever the session has a
+// not-yet-expired AwaitingLogin entry (db.PendingAuthz.AwaitingLoginValid) --
+// regardless of the query string -- rather than inferring a resume from the
+// query string being empty.
 func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
+	sess := sessionFromCtx(r)
+	user := userFromCtx(r)
+
 	q := r.URL.Query()
 	clientID := q.Get("client_id")
 	redirectURI := q.Get("redirect_uri")
 	scope := q.Get("scope")
 	state := q.Get("state")
 	responseType := q.Get("response_type")
+
+	var resumeTxID string
+	if user != nil {
+		for txID, p := range sess.PendingAuthz {
+			if p.AwaitingLoginValid() {
+				clientID, redirectURI, scope, state, responseType = p.ClientID, p.RedirectURI, p.Scope, p.State, p.ResponseType
+				resumeTxID = txID
+				break
+			}
+		}
+	}
 
 	client, err := s.DB.GetClient(clientID)
 	if err != nil || client == nil {
@@ -67,15 +93,48 @@ func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user := userFromCtx(r)
-
-	if client.Trusted {
-		s.grantAndRedirect(w, r, client, user, redirectURI, scope, state, responseType)
+	if user == nil {
+		pending := sess.PendingAuthz
+		if pending == nil {
+			pending = map[string]db.PendingAuthz{}
+		}
+		for txID, p := range pending {
+			if p.AwaitingLogin {
+				delete(pending, txID)
+			}
+		}
+		txID := newOpaqueID()
+		pending[txID] = db.PendingAuthz{
+			ClientID:      clientID,
+			RedirectURI:   redirectURI,
+			Scope:         scope,
+			State:         state,
+			ResponseType:  responseType,
+			AwaitingLogin: true,
+			StashedAt:     time.Now(),
+		}
+		if err := s.DB.SetPendingAuthz(sess.ID, pending); err != nil {
+			s.renderError(w, r, http.StatusInternalServerError, "session error")
+			return
+		}
+		http.Redirect(w, r, "/login", http.StatusFound)
 		return
 	}
 
-	txID := newOpaqueID()
-	sess := sessionFromCtx(r)
+	if client.Trusted {
+		if s.grantAndRedirect(w, r, client, user, redirectURI, scope, state, responseType) && resumeTxID != "" {
+			delete(sess.PendingAuthz, resumeTxID)
+			if err := s.DB.SetPendingAuthz(sess.ID, sess.PendingAuthz); err != nil {
+				s.Log.Error("clear consumed pending_authz after trusted grant", "err", err)
+			}
+		}
+		return
+	}
+
+	txID := resumeTxID
+	if txID == "" {
+		txID = newOpaqueID()
+	}
 	pending := sess.PendingAuthz
 	if pending == nil {
 		pending = map[string]db.PendingAuthz{}
@@ -113,7 +172,14 @@ func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 // 6749 §4.2.2, followed here deliberately for realism) no refresh_token.
 // Per spec, anything that includes "token" goes in the URL fragment rather
 // than the query string; grantAndRedirect switches on that automatically.
-func (s *Server) grantAndRedirect(w http.ResponseWriter, r *http.Request, client *db.Client, user *db.User, redirectURI, scope, state, responseType string) {
+//
+// Returns whether the grant succeeded. Callers that also need to consume a
+// resumed pending-authorization entry (handleAuthorize's Trusted-client
+// branch) must gate that cleanup on this return value: on failure,
+// grantAndRedirect has already written an error response itself, and the
+// caller must not go on to discard state describing a request that was
+// never actually granted.
+func (s *Server) grantAndRedirect(w http.ResponseWriter, r *http.Request, client *db.Client, user *db.User, redirectURI, scope, state, responseType string) bool {
 	wantToken := wantsToken(responseType)
 	wantCode := wantsCode(responseType)
 
@@ -122,7 +188,7 @@ func (s *Server) grantAndRedirect(w http.ResponseWriter, r *http.Request, client
 		code := weakCode()
 		if err := s.DB.CreateAuthCode(code, client.ClientID, user.ID, redirectURI, scope); err != nil {
 			s.renderError(w, r, http.StatusInternalServerError, "could not grant code")
-			return
+			return false
 		}
 		values.Set("code", code)
 	}
@@ -130,7 +196,7 @@ func (s *Server) grantAndRedirect(w http.ResponseWriter, r *http.Request, client
 		accessToken := weakToken()
 		if err := s.DB.CreateAccessToken(accessToken, client.ClientID, user.ID, scope); err != nil {
 			s.renderError(w, r, http.StatusInternalServerError, "could not grant token")
-			return
+			return false
 		}
 		values.Set("access_token", accessToken)
 		values.Set("token_type", "Bearer")
@@ -141,6 +207,7 @@ func (s *Server) grantAndRedirect(w http.ResponseWriter, r *http.Request, client
 
 	noCacheHeaders(w)
 	http.Redirect(w, r, redirectURI+redirectSeparator(wantToken)+values.Encode(), http.StatusFound)
+	return true
 }
 
 // wantsCode reports whether responseType explicitly asks for an

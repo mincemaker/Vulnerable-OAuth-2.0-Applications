@@ -56,6 +56,12 @@ func (s *Server) withSession(next http.HandlerFunc) http.HandlerFunc {
 			if u, err := s.DB.GetUserByID(sess.UserID.String); err == nil && u != nil {
 				ctx = context.WithValue(ctx, ctxKeyUser, u)
 			}
+			// Sliding idle-timeout window: every authenticated request
+			// extends the session, not just writes like SetSessionUser/
+			// ClearSessionUser/SetPendingAuthz. Anonymous/pre-login rows are
+			// untouched, matching GetSession's expiry check, which also only
+			// applies to UserID.Valid rows.
+			_ = s.DB.TouchSession(sess.ID)
 		}
 		next(w, r.WithContext(ctx))
 	}

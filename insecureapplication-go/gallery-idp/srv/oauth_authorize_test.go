@@ -17,8 +17,10 @@ import (
 // newTestServer boots a full gallery-idp server against a fresh, migrated,
 // seeded SQLite database, plus one extra "trusted-client" client (so tests
 // can exercise the immediate-grant path in handleAuthorize without also
-// having to drive the consent dialog).
-func newTestServer(t *testing.T) *httptest.Server {
+// having to drive the consent dialog). It returns the underlying *db.DB
+// alongside the server so tests can reach into session/pending-authz state
+// directly (e.g. backdating timestamps to exercise expiry).
+func newTestServer(t *testing.T) (*httptest.Server, *db.DB) {
 	t.Helper()
 
 	database, err := db.Open(filepath.Join(t.TempDir(), "test.sqlite3"))
@@ -45,7 +47,7 @@ func newTestServer(t *testing.T) *httptest.Server {
 
 	ts := httptest.NewServer(server.Handler())
 	t.Cleanup(ts.Close)
-	return ts
+	return ts, database
 }
 
 // loginAsKoen logs the seeded "koen"/"password" user in and returns an
@@ -81,7 +83,7 @@ func loginAsKoen(t *testing.T, baseURL string) *http.Client {
 // unaffected, and a missing/unsupported response_type must produce an RFC
 // 6749 §4.1.2.1/§4.2.2.1 error redirect instead of a silently empty one.
 func TestHandleAuthorize_ResponseType(t *testing.T) {
-	ts := newTestServer(t)
+	ts, _ := newTestServer(t)
 	client := loginAsKoen(t, ts.URL)
 
 	const callback = "http://client.example/callback"

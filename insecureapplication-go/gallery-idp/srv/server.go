@@ -38,7 +38,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 
 	// --- OAuth 2.0 (mounted at both /oauth/... and /...) ---
-	registerDual(mux, "GET", "/authorize", s.withSession(s.requireSession(s.handleAuthorize)))
+	registerDual(mux, "GET", "/authorize", s.withSession(s.handleAuthorize))
 	registerDual(mux, "POST", "/authorize/decision", s.withSession(s.requireSession(s.handleDecision)))
 	registerDual(mux, "POST", "/token", s.requireClientAuth(s.handleToken))
 	mux.HandleFunc("GET /token/introspect", s.handleIntrospect)

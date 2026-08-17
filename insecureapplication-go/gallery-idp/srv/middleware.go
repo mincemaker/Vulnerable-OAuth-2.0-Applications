@@ -8,8 +8,10 @@ import (
 )
 
 // requireSession mirrors connect-ensure-login's login.ensureLoggedIn(): pure
-// session-cookie auth, no bearer-token awareness. Used for the GET
-// /authorize consent flow and other browser-only actions.
+// session-cookie auth, no bearer-token awareness. Used for POST
+// /authorize/decision. GET /authorize handles its own unauthenticated case
+// (see handleAuthorize) so that it can stash the pending authorization
+// request before bouncing to /login, instead of losing it.
 func (s *Server) requireSession(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if userFromCtx(r) == nil {
