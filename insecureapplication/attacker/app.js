@@ -60,15 +60,16 @@ function galleryBrowserBase(req) {
 app.get('/', function(req, res){
   const galleryBrowserHost = galleryBrowserBase(req);
   const selfCallback = req.protocol + '://' + req.get('host') + '/callback';
+  const clientId = encodeURIComponent(photoprintConfig.oauth.client.id);
   res.render('index', {
-    stealCodeUrl: galleryBrowserHost + '/oauth/authorize?response_type=code&redirect_uri=' + encodeURIComponent(selfCallback) + '&scope=view_gallery&client_id=photoprint',
-    openRedirectUrl: galleryBrowserHost + '/oauth/authorize?response_type=code&redirect_uri=' + encodeURIComponent('http://www.example.com') + '&scope=view_gallery&client_id=photoprint',
+    stealCodeUrl: galleryBrowserHost + '/oauth/authorize?response_type=code&redirect_uri=' + encodeURIComponent(selfCallback) + '&scope=view_gallery&client_id=' + clientId,
+    openRedirectUrl: galleryBrowserHost + '/oauth/authorize?response_type=code&redirect_uri=' + encodeURIComponent('http://www.example.com') + '&scope=view_gallery&client_id=' + clientId,
     // gallery never restricts which response_type a registered client may
     // request -- switching photoprint (a server-side app meant to be
     // confined to the code flow) to response_type=token gets an access
     // token back directly in the URL fragment instead of a code. See
     // doc/OAuth2_PoC_Verification_Report.md PoC8.
-    implicitGrantUrl: galleryBrowserHost + '/oauth/authorize?response_type=token&redirect_uri=' + encodeURIComponent(selfCallback) + '&scope=view_gallery&client_id=photoprint',
+    implicitGrantUrl: galleryBrowserHost + '/oauth/authorize?response_type=token&redirect_uri=' + encodeURIComponent(selfCallback) + '&scope=view_gallery&client_id=' + clientId,
   });
 });
 
