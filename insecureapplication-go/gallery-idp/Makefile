@@ -1,4 +1,7 @@
--include .env
+# Local dev config (CLIENT_ID/CLIENT_SECRET) comes from the repo-root
+# mise.toml (see ../../mise.toml.sample) via mise's shell activation.
+# Without mise, prefix vars inline instead, e.g.:
+#   CLIENT_ID=photoprint CLIENT_SECRET=secret make dev
 IMAGE_NAME ?= gallery-idp:latest
 
 .PHONY: build build-frontend dev test clean install docker-build

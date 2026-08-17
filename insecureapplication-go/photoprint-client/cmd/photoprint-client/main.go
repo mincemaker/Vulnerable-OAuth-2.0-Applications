@@ -23,7 +23,7 @@ func main() {
 	cfg := srv.Config{
 		ClientID:          envOr("CLIENT_ID", "photoprint"),
 		ClientSecret:      envOr("CLIENT_SECRET", "secret"),
-		TokenHost:         envOr("GALLERY_URL", "http://gallery:3005"),
+		TokenHost:         envOr("GALLERY_URL", "http://localhost:3005"),
 		GalleryBrowserURL: os.Getenv("GALLERY_BROWSER_URL"),
 		SessionSecret:     envOr("SESSION_SECRET", "changethistoconfigfile"),
 		Scope:             "view_gallery",

@@ -19,29 +19,22 @@ To run the applications, you can use either **Docker Compose** or run them **dir
 
    *(Optional: You can also open [http://localhost:7900](http://localhost:7900) in your browser with password `secret` to use the containerized Firefox browser via noVNC).*
 
-## Option B: Running on Host (Node.js >= 22.13)
+## Option B: Running on Host
 
-> **Note**: Database is powered by Node's built-in `node:sqlite` and will automatically initialize and seed on startup (no separate DB server or import required).
+`gallery` and `photoprint` are now the Go ports described in [`../insecureapplication-go/README.md`](../insecureapplication-go/README.md) — see that file for how to run them without Docker (`make dev` in each directory, no configuration required for the `*.127.0.0.1.nip.io` setup below).
 
-1. Install the dependencies:
+`attacker` is still Node.js:
+
+1. Install the dependency:
 
     ```bash
-    cd gallery && npm install
-    cd ../photoprint && npm install
-    cd ../attacker && npm install
+    cd attacker && npm install
     ```
 
-2. Start the servers (in separate terminals or background):
+2. Start it (with gallery-idp and photoprint-client already running per the Go instructions above):
 
     ```bash
-    # 1. Gallery (IdP / Resource Server)
-    cd gallery && npm start
-
-    # 2. PhotoPrint (Client)
-    cd photoprint && GALLERY_URL=http://localhost:3005 npm start
-
-    # 3. Attacker (Attacker Site)
-    cd attacker && GALLERY_URL=http://localhost:3005 npm start
+    GALLERY_URL=http://localhost:3005 npm start
     ```
 
 ## Usage & Testing

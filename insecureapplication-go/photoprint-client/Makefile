@@ -1,4 +1,7 @@
--include .env
+# Local dev config (CLIENT_ID/CLIENT_SECRET/SESSION_SECRET/GALLERY_URL/...)
+# comes from the repo-root mise.toml (see ../../mise.toml.sample) via mise's
+# shell activation. Without mise, prefix vars inline instead, e.g.:
+#   GALLERY_URL=http://localhost:3005 make dev
 IMAGE_NAME ?= photoprint-client:latest
 
 .PHONY: build dev test clean install docker-build

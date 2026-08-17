@@ -18,7 +18,7 @@ import (
 type Config struct {
 	ClientID          string
 	ClientSecret      string
-	TokenHost         string // GALLERY_URL override; default http://gallery:3005
+	TokenHost         string // GALLERY_URL override; default http://localhost:3005 (compose sets it to http://gallery:3005)
 	GalleryBrowserURL string // GALLERY_BROWSER_URL override, optional
 	SessionSecret     string
 	Scope             string

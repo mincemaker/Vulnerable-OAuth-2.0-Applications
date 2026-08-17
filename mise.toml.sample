@@ -1,11 +1,20 @@
 # Sample mise environment configuration for Vulnerable OAuth 2.0 Applications
 # Copy this file to `mise.toml` and fill in your environment variables.
+#
+# This is the single source of dev config for insecureapplication-go's
+# photoprint-client and gallery-idp when running host-native (`make dev` or
+# a built binary) -- mise's shell activation applies these vars in any
+# subdirectory of the repo, no per-service .env file needed.
 
 [env]
 CLIENT_ID = "photoprint"
 CLIENT_SECRET = "secret"
 SESSION_SECRET = "changethistoconfigfile"
-GALLERY_URL = "http://gallery:3005"
-GALLERY_BROWSER_URL = "http://gallery.127.0.0.1.nip.io:3005"
+# GALLERY_URL and GALLERY_BROWSER_URL only need overriding if gallery-idp
+# isn't reachable at the default http://localhost:3005, or if you're not
+# browsing via a *.127.0.0.1.nip.io hostname (which auto-derives the
+# browser-facing gallery URL from the request Host header).
+# GALLERY_URL = "http://localhost:3005"
+# GALLERY_BROWSER_URL = "http://gallery.127.0.0.1.nip.io:3005"
 PHOTOPRINT_BROWSER_URL = "http://photoprint.127.0.0.1.nip.io:3000"
 ATTACKER_BROWSER_URL = "http://attacker.127.0.0.1.nip.io:1337"

@@ -24,6 +24,10 @@ services:
       - CLIENT_ID=${CLIENT_ID:-photoprint}
       - CLIENT_SECRET=${CLIENT_SECRET:-secret}
       - SESSION_SECRET=${SESSION_SECRET:-changethistoconfigfile}
+      # photoprint-client's own default (http://localhost:3005) targets
+      # host-native dev; the compose network needs gallery's container DNS
+      # name instead, so it's declared explicitly here.
+      - GALLERY_URL=http://gallery:3005
     ports:
       - "3000:3000"
     depends_on:
