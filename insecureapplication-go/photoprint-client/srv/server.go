@@ -59,5 +59,10 @@ func (s *Server) Handler() http.Handler {
 	// so the compiled binary is self-contained.
 	mux.Handle("GET /stylesheets/", http.FileServer(http.FS(web.Static)))
 
+	// --- API docs (Scalar UI over the embedded OpenAPI spec). ---
+	mux.HandleFunc("GET /api-docs", s.handleAPIDocs)
+	mux.Handle("GET /api-docs/scalar-standalone.v1.65.1.js",
+		http.StripPrefix("/api-docs/", http.FileServer(http.FS(scalarBundleFiles))))
+
 	return mux
 }

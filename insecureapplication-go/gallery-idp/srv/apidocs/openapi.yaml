@@ -1,0 +1,1082 @@
+openapi: 3.1.0
+info:
+  title: gallery-idp
+  version: "1.0.0"
+  description: >
+    OAuth 2.0 authorization server and resource server for the gallery photo-sharing
+    service. Issues authorization codes and access tokens to registered clients, and
+    exposes the users/clients/photos/albums resources those tokens (or a browser
+    session) can act on.
+
+
+    A handful of OAuth 2.0 endpoints are additionally reachable under an
+    `/oauth`-prefixed alias of the same path (for example, both `/authorize` and
+    `/oauth/authorize` reach the same operation). Both forms behave identically;
+    use whichever matches the client you are integrating.
+servers:
+  - url: /
+    description: This server (whatever host/port you're browsing it from)
+tags:
+  - name: OAuth 2.0
+    description: Authorization, token issuance, and discovery endpoints.
+  - name: Auth & Session
+    description: Browser-facing login, logout, and registration pages.
+  - name: Users
+    description: User accounts.
+  - name: Clients
+    description: OAuth client registrations.
+  - name: Photos
+    description: The protected resource this server hosts on behalf of users.
+  - name: Albums
+    description: Named groupings of photos.
+paths:
+  /authorize:
+    get:
+      operationId: authorize
+      tags: [OAuth 2.0]
+      summary: Authorization endpoint
+      description: >
+        Starts an authorization request (RFC 6749 §3.1). If the caller has no valid
+        session, the request is stashed and the browser is redirected to `/login`;
+        after a successful login it resumes automatically. If the client is marked
+        as trusted, the grant is issued immediately without a consent screen;
+        otherwise a consent page is rendered for the resource owner to approve or
+        deny.
+      parameters:
+        - name: client_id
+          in: query
+          required: true
+          schema: { type: string }
+          description: The requesting client's identifier.
+        - name: redirect_uri
+          in: query
+          required: true
+          schema: { type: string, format: uri }
+          description: >
+            Where to deliver the authorization response. Must exactly match one of
+            the URIs registered for this client (RFC 6749 §3.1.2.3).
+        - name: response_type
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: ["code", "token", "code token"]
+          description: >
+            `code` for the Authorization Code grant, `token` for the Implicit
+            grant, or `code token` for the hybrid form that returns both.
+        - name: scope
+          in: query
+          required: false
+          schema: { type: string }
+          description: >
+            Space- or comma-delimited list of requested scopes. Known values:
+            `view_gallery`, `view_profile`, `edit_profile`, `delete_profile`,
+            `edit_picture`, `delete_picture`, `upload_picture`, `list_users`,
+            `offline_access`, and `*` (full access).
+        - name: state
+          in: query
+          required: false
+          schema: { type: string }
+          description: >
+            Opaque value the client can use to maintain state between this request
+            and the callback, and to protect against cross-site request forgery
+            (RFC 6749 §10.12). Echoed back unchanged on the response.
+      responses:
+        "200":
+          description: >
+            Consent screen rendered (non-trusted client, resource owner already
+            authenticated).
+          content:
+            text/html: { schema: { type: string } }
+        "302":
+          description: >
+            One of: redirect to `/login` (no valid session yet); redirect to
+            `redirect_uri` with `code` and/or `access_token`+`token_type` in the
+            query string (`code` only) or fragment (when a token is included), plus
+            `state` if it was supplied, on a trusted-client grant; or redirect to
+            `redirect_uri` with `error=invalid_request` /
+            `error=unsupported_response_type` if `response_type` is missing or
+            invalid.
+          headers:
+            Location: { schema: { type: string, format: uri } }
+        "400":
+          description: "`client_id` does not resolve to a registered client."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+            text/html: { schema: { type: string } }
+
+  /authorize/decision:
+    post:
+      operationId: authorizeDecision
+      tags: [OAuth 2.0]
+      summary: Consent decision
+      description: >
+        Submits the resource owner's decision on the consent screen rendered by
+        `GET /authorize`.
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [transaction_id]
+              properties:
+                transaction_id:
+                  type: string
+                  description: The `TransactionID` value from the consent screen.
+                cancel:
+                  type: string
+                  description: Present (any value) to deny the request instead of granting it.
+      responses:
+        "302":
+          description: >
+            Redirect to `redirect_uri` with `code`/`access_token` on approval, or
+            with `error=access_denied` if `cancel` was set.
+          headers:
+            Location: { schema: { type: string, format: uri } }
+        "400":
+          description: Unknown or expired `transaction_id`, or its client no longer exists.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+            text/html: { schema: { type: string } }
+
+  /token:
+    post:
+      operationId: token
+      tags: [OAuth 2.0]
+      summary: Token endpoint
+      description: >
+        Exchanges an authorization code or refresh token for an access token (RFC
+        6749 §4.1.3, §6). Client authentication is required, either via HTTP Basic
+        or via `client_id`/`client_secret` form fields; the authorization
+        code or refresh token being redeemed must have been issued to the
+        authenticating client.
+      security:
+        - clientBasic: []
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [grant_type]
+              properties:
+                grant_type:
+                  type: string
+                  enum: [authorization_code, refresh_token]
+                code:
+                  type: string
+                  description: >
+                    Required when `grant_type` is `authorization_code`. The
+                    authorization code issued by `GET /authorize`, to be redeemed
+                    here.
+                refresh_token:
+                  type: string
+                  description: Required when `grant_type` is `refresh_token`.
+                client_id:
+                  type: string
+                  description: Client identifier, if not supplied via HTTP Basic.
+                client_secret:
+                  type: string
+                  description: Client secret, if not supplied via HTTP Basic.
+      responses:
+        "200":
+          description: Access token issued.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TokenResponse" }
+        "400":
+          description: >
+            `unsupported_grant_type` (unrecognized `grant_type`) or `access_denied`
+            (the code/refresh token does not resolve).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+        "401":
+          description: "`invalid_client` — client authentication failed."
+          headers:
+            WWW-Authenticate: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+
+  /token/introspect:
+    get:
+      operationId: introspect
+      tags: [OAuth 2.0]
+      summary: Token introspection
+      description: >
+        Returns metadata about an access token. This endpoint does not require
+        authentication.
+      security: []
+      parameters:
+        - name: access_token
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Token metadata.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IntrospectResponse" }
+        "400":
+          description: '`invalid_token` — the token does not resolve, or its client no longer exists.'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+
+  /.well-known/oauth-authorization-server:
+    get:
+      operationId: wellKnownOAuth
+      tags: [OAuth 2.0]
+      summary: Authorization server metadata
+      description: RFC 8414 authorization server metadata document.
+      security: []
+      responses:
+        "200":
+          description: Metadata document.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ServerMetadata" }
+
+  /.well-known/openid-configuration:
+    get:
+      operationId: wellKnownOIDC
+      tags: [OAuth 2.0]
+      summary: OpenID Connect discovery
+      description: OpenID Connect discovery document. Same content as `/.well-known/oauth-authorization-server`.
+      security: []
+      responses:
+        "200":
+          description: Metadata document.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ServerMetadata" }
+
+  /:
+    get:
+      operationId: index
+      tags: [Auth & Session]
+      summary: Home page
+      description: Landing page. Redirects to `/photos/{username}` if a session is already authenticated.
+      responses:
+        "200":
+          description: Home page.
+          content:
+            text/html: { schema: { type: string } }
+        "302":
+          description: Redirect to `/photos/{username}` for an authenticated session.
+          headers:
+            Location: { schema: { type: string, format: uri } }
+
+  /login:
+    get:
+      operationId: loginForm
+      tags: [Auth & Session]
+      summary: Login form
+      responses:
+        "200":
+          description: Login form.
+          content:
+            text/html: { schema: { type: string } }
+    post:
+      operationId: loginSubmit
+      tags: [Auth & Session]
+      summary: Submit login credentials
+      description: >
+        On success, issues a fresh session cookie and, if an authorization request
+        was in progress, resumes it by redirecting back to `/authorize`.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string }
+                password: { type: string }
+      responses:
+        "302":
+          description: Redirect to `/` on success (or to `/authorize` if resuming), or back to `/login` on failure.
+          headers:
+            Location: { schema: { type: string, format: uri } }
+
+  /logout:
+    get:
+      operationId: logoutGet
+      tags: [Auth & Session]
+      summary: Log out
+      responses:
+        "302":
+          description: Redirect to `/`.
+          headers:
+            Location: { schema: { type: string, format: uri } }
+    post:
+      operationId: logoutPost
+      tags: [Auth & Session]
+      summary: Log out
+      responses:
+        "302":
+          description: Redirect to `/`.
+          headers:
+            Location: { schema: { type: string, format: uri } }
+
+  /users/register:
+    get:
+      operationId: registerForm
+      tags: [Auth & Session]
+      summary: Registration form
+      responses:
+        "200":
+          description: Registration form.
+          content:
+            text/html: { schema: { type: string } }
+
+  /users:
+    post:
+      operationId: registerSubmit
+      tags: [Users]
+      summary: Register a new user
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [username, password, email]
+              properties:
+                username: { type: string }
+                password: { type: string }
+                email: { type: string, format: email }
+      responses:
+        "302":
+          description: Redirect to `/login` on success.
+          headers:
+            Location: { schema: { type: string, format: uri } }
+        "400":
+          description: A user with this username already exists.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+            text/html: { schema: { type: string } }
+    get:
+      operationId: listUsers
+      tags: [Users]
+      summary: List users
+      security:
+        - bearerHeader: []
+        - bearerQuery: []
+        - sessionCookie: []
+      responses:
+        "200":
+          description: All registered users.
+          content:
+            text/html: { schema: { type: string } }
+            application/json:
+              schema:
+                type: object
+                properties:
+                  users:
+                    type: array
+                    items: { $ref: "#/components/schemas/User" }
+
+  /users/{name}:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        schema: { type: string }
+        description: A username, or the literal value `me` to resolve to the authenticated caller.
+    get:
+      operationId: getUser
+      tags: [Users]
+      summary: Get a user
+      security:
+        - bearerHeader: []
+        - bearerQuery: []
+        - sessionCookie: []
+      responses:
+        "200":
+          description: The user's profile.
+          content:
+            text/html: { schema: { type: string } }
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user: { $ref: "#/components/schemas/User" }
+        "404":
+          description: No such user.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+            text/html: { schema: { type: string } }
+    put:
+      operationId: updateUserPut
+      tags: [Users]
+      summary: Update a user
+      security:
+        - bearerHeader: []
+        - bearerQuery: []
+        - sessionCookie: []
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema: { $ref: "#/components/schemas/UserUpdateForm" }
+      responses:
+        "200":
+          description: The updated user.
+          content:
+            text/html: { schema: { type: string } }
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user: { $ref: "#/components/schemas/User" }
+    post:
+      operationId: updateUserPost
+      tags: [Users]
+      summary: Update a user
+      security:
+        - bearerHeader: []
+        - bearerQuery: []
+        - sessionCookie: []
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema: { $ref: "#/components/schemas/UserUpdateForm" }
+      responses:
+        "200":
+          description: The updated user.
+          content:
+            text/html: { schema: { type: string } }
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user: { $ref: "#/components/schemas/User" }
+    delete:
+      operationId: deleteUser
+      tags: [Users]
+      summary: Delete a user
+      security:
+        - bearerHeader: []
+        - bearerQuery: []
+        - sessionCookie: []
+      responses:
+        "204":
+          description: Deleted.
+
+  /clients:
+    post:
+      operationId: createClient
+      tags: [Clients]
+      summary: Register an OAuth client
+      security:
+        - bearerHeader: []
+        - bearerQuery: []
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [clientID, clientSecret]
+              properties:
+                clientID: { type: string }
+                name: { type: string }
+                clientSecret: { type: string }
+                redirectURIs:
+                  type: string
+                  description: One or more redirect URIs this client will use with `GET /authorize`.
+                trusted:
+                  type: string
+                  description: Present (any non-empty value) to mark this client as trusted (skips the consent screen).
+      responses:
+        "200":
+          description: The created client.
+          content:
+            text/html: { schema: { type: string } }
+            application/json:
+              schema:
+                type: object
+                properties:
+                  client: { $ref: "#/components/schemas/Client" }
+        "400":
+          description: Could not create client (e.g. duplicate `clientID`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+            text/html: { schema: { type: string } }
+    get:
+      operationId: listClients
+      tags: [Clients]
+      summary: List OAuth clients
+      security:
+        - bearerHeader: []
+        - bearerQuery: []
+        - sessionCookie: []
+      responses:
+        "200":
+          description: All registered clients.
+          content:
+            text/html: { schema: { type: string } }
+            application/json:
+              schema:
+                type: object
+                properties:
+                  clients:
+                    type: array
+                    items: { $ref: "#/components/schemas/Client" }
+
+  /clients/{clientID}:
+    parameters:
+      - name: clientID
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      operationId: getClient
+      tags: [Clients]
+      summary: Get an OAuth client
+      security:
+        - bearerHeader: []
+        - bearerQuery: []
+        - sessionCookie: []
+      responses:
+        "200":
+          description: The client.
+          content:
+            text/html: { schema: { type: string } }
+            application/json:
+              schema:
+                type: object
+                properties:
+                  client: { $ref: "#/components/schemas/Client" }
+        "404":
+          description: No such client.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+            text/html: { schema: { type: string } }
+    put:
+      operationId: updateClientPut
+      tags: [Clients]
+      summary: Update an OAuth client
+      security:
+        - bearerHeader: []
+        - bearerQuery: []
+        - sessionCookie: []
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema: { $ref: "#/components/schemas/ClientUpdateForm" }
+      responses:
+        "200":
+          description: The updated client.
+          content:
+            text/html: { schema: { type: string } }
+            application/json:
+              schema:
+                type: object
+                properties:
+                  client: { $ref: "#/components/schemas/Client" }
+    post:
+      operationId: updateClientPost
+      tags: [Clients]
+      summary: Update an OAuth client
+      security:
+        - bearerHeader: []
+        - bearerQuery: []
+        - sessionCookie: []
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema: { $ref: "#/components/schemas/ClientUpdateForm" }
+      responses:
+        "200":
+          description: The updated client.
+          content:
+            text/html: { schema: { type: string } }
+            application/json:
+              schema:
+                type: object
+                properties:
+                  client: { $ref: "#/components/schemas/Client" }
+    delete:
+      operationId: deleteClient
+      tags: [Clients]
+      summary: Delete an OAuth client
+      security:
+        - bearerHeader: []
+        - bearerQuery: []
+        - sessionCookie: []
+      responses:
+        "204":
+          description: Deleted.
+
+  /photos:
+    get:
+      operationId: uploadForm
+      tags: [Photos]
+      summary: Upload form
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Upload form.
+          content:
+            text/html: { schema: { type: string } }
+    post:
+      operationId: uploadPhoto
+      tags: [Photos]
+      summary: Upload a photo
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [recfile]
+              properties:
+                recfile: { type: string, format: binary }
+                description: { type: string }
+      responses:
+        "302":
+          description: Redirect to `/photos/{username}` (the uploader's own gallery).
+          headers:
+            Location: { schema: { type: string, format: uri } }
+
+  /photos/{username}:
+    parameters:
+      - name: username
+        in: path
+        required: true
+        schema: { type: string }
+        description: A username, or the literal value `me` to resolve to the authenticated caller.
+    get:
+      operationId: listPhotos
+      tags: [Photos]
+      summary: List a user's photos
+      security:
+        - bearerHeader: []
+        - bearerQuery: []
+        - sessionCookie: []
+      responses:
+        "200":
+          description: The user's photos.
+          content:
+            text/html: { schema: { type: string } }
+            application/json:
+              schema:
+                type: object
+                properties:
+                  images:
+                    type: array
+                    items: { $ref: "#/components/schemas/ImageSummary" }
+        "404":
+          description: No such user.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+            text/html: { schema: { type: string } }
+
+  /photos/{username}/{imageid}:
+    parameters:
+      - name: username
+        in: path
+        required: true
+        schema: { type: string }
+      - name: imageid
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      operationId: getImageMeta
+      tags: [Photos]
+      summary: Get photo metadata
+      security: []
+      responses:
+        "200":
+          description: The photo's metadata.
+          content:
+            text/html: { schema: { type: string } }
+            application/json:
+              schema:
+                type: object
+                properties:
+                  image: { $ref: "#/components/schemas/Image" }
+        "404":
+          description: No such photo.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+            text/html: { schema: { type: string } }
+    put:
+      operationId: updateImage
+      tags: [Photos]
+      summary: Update a photo
+      security:
+        - bearerHeader: []
+        - bearerQuery: []
+        - sessionCookie: []
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                description: { type: string }
+                album: { type: string }
+      responses:
+        "204":
+          description: Updated.
+    delete:
+      operationId: deleteImage
+      tags: [Photos]
+      summary: Delete a photo
+      security:
+        - bearerHeader: []
+        - bearerQuery: []
+        - sessionCookie: []
+      responses:
+        "204":
+          description: Deleted.
+
+  /photos/{username}/{imageid}/view:
+    parameters:
+      - name: username
+        in: path
+        required: true
+        schema: { type: string }
+      - name: imageid
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      operationId: getImageMetaView
+      tags: [Photos]
+      summary: Get photo metadata
+      description: Identical to `GET /photos/{username}/{imageid}`.
+      security: []
+      responses:
+        "200":
+          description: The photo's metadata.
+          content:
+            text/html: { schema: { type: string } }
+            application/json:
+              schema:
+                type: object
+                properties:
+                  image: { $ref: "#/components/schemas/Image" }
+        "404":
+          description: No such photo.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+            text/html: { schema: { type: string } }
+
+  /photos/{username}/{imageid}/raw:
+    parameters:
+      - name: username
+        in: path
+        required: true
+        schema: { type: string }
+        description: Identifies the photo's owner for URL structure; the lookup below is by `imageid` alone.
+      - name: imageid
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      operationId: getImageRaw
+      tags: [Photos]
+      summary: Get raw photo bytes
+      security: []
+      responses:
+        "200":
+          description: The raw image file.
+          content:
+            image/*:
+              schema: { type: string, format: binary }
+        "404":
+          description: No such photo.
+          content:
+            text/html: { schema: { type: string } }
+
+  /albums:
+    get:
+      operationId: listAlbums
+      tags: [Albums]
+      summary: List the caller's albums
+      security:
+        - bearerHeader: []
+        - bearerQuery: []
+        - sessionCookie: []
+      responses:
+        "200":
+          description: The caller's albums.
+          content:
+            text/html: { schema: { type: string } }
+            application/json:
+              schema:
+                type: object
+                properties:
+                  albums:
+                    type: array
+                    items: { $ref: "#/components/schemas/Album" }
+    post:
+      operationId: createAlbum
+      tags: [Albums]
+      summary: Create an album
+      security:
+        - sessionCookie: []
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, description: "Album name. Must be unique across all users." }
+                description: { type: string }
+      responses:
+        "302":
+          description: Redirect to `/albums/{name}`.
+          headers:
+            Location: { schema: { type: string, format: uri } }
+
+  /albums/{name}:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      operationId: getAlbum
+      tags: [Albums]
+      summary: Get an album
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: The album.
+          content:
+            text/html: { schema: { type: string } }
+            application/json:
+              schema:
+                type: object
+                properties:
+                  album: { $ref: "#/components/schemas/Album" }
+        "404":
+          description: No such album.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+            text/html: { schema: { type: string } }
+    post:
+      operationId: createAlbumNamed
+      tags: [Albums]
+      summary: Create an album
+      description: Identical to `POST /albums`, with `name` taken from the path instead of the form body.
+      security:
+        - sessionCookie: []
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                description: { type: string }
+      responses:
+        "302":
+          description: Redirect to `/albums/{name}`.
+          headers:
+            Location: { schema: { type: string, format: uri } }
+    put:
+      operationId: updateAlbum
+      tags: [Albums]
+      summary: Update an album
+      security:
+        - bearerHeader: []
+        - bearerQuery: []
+        - sessionCookie: []
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                description: { type: string }
+      responses:
+        "204":
+          description: Updated.
+    delete:
+      operationId: deleteAlbum
+      tags: [Albums]
+      summary: Delete an album
+      security:
+        - bearerHeader: []
+        - bearerQuery: []
+        - sessionCookie: []
+      responses:
+        "204":
+          description: Deleted.
+
+  /oauth/authorize:
+    $ref: "#/paths/~1authorize"
+  /oauth/authorize/decision:
+    $ref: "#/paths/~1authorize~1decision"
+  /oauth/token:
+    $ref: "#/paths/~1token"
+
+components:
+  securitySchemes:
+    bearerHeader:
+      type: http
+      scheme: bearer
+      description: "`Authorization: Bearer <access_token>`"
+    bearerQuery:
+      type: apiKey
+      in: query
+      name: access_token
+      description: Access token passed as a query parameter instead of a header.
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: gallery_sid
+    clientBasic:
+      type: http
+      scheme: basic
+      description: Client credentials as HTTP Basic auth.
+
+  schemas:
+    ErrorMessage:
+      type: object
+      properties:
+        error:
+          type: string
+
+    TokenResponse:
+      type: object
+      properties:
+        access_token:
+          type: integer
+          description: Returned as a JSON number, not a string.
+        refresh_token:
+          type: string
+          description: Present only when the granted scope includes `offline_access`.
+        token_type:
+          type: string
+          const: Bearer
+
+    IntrospectResponse:
+      type: object
+      properties:
+        iss: { type: string, description: "The issuer, derived from the request's Host header." }
+        sub: { type: string, description: The token's subject (user id). }
+        aud: { type: string, description: The client id the token was issued to. }
+        azp: { type: string, description: Same as `aud`. }
+        exp: { type: integer, description: Expiry, as a Unix timestamp. }
+        iat: { type: integer, description: Issued-at, as a Unix timestamp. }
+        name: { type: string, description: The token subject's username. }
+
+    ServerMetadata:
+      type: object
+      description: RFC 8414 / OpenID Connect discovery metadata.
+      properties:
+        issuer: { type: string, format: uri }
+        token_endpoint: { type: string, format: uri }
+        introspection_endpoint: { type: string, format: uri }
+        revocation_endpoint: { type: string }
+        authorization_endpoint: { type: string, format: uri }
+        userinfo_endpoint: { type: string }
+        registration_endpoint: { type: string }
+        jwks_uri: { type: string }
+        scopes_supported: { type: array, items: { type: string } }
+        response_types_supported: { type: array, items: { type: string } }
+        response_modes_supported: { type: array, items: { type: string } }
+        grant_types_supported: { type: array, items: { type: string } }
+        code_challenge_methods_supported: { type: array, items: { type: string } }
+        acr_values_supported: { type: array, items: { type: string } }
+        subject_types_supported: { type: array, items: { type: string } }
+        token_endpoint_auth_methods_supported: { type: array, items: { type: string } }
+        claim_types_supported: { type: array, items: { type: string } }
+        claims_supported: { type: array, items: { type: string } }
+        ui_locales_supported: { type: array, items: { type: string } }
+        claims_parameter_supported: { type: boolean }
+        request_parameter_supported: { type: boolean }
+        request_uri_parameter_supported: { type: boolean }
+        require_request_uri_registration: { type: boolean }
+
+    User:
+      type: object
+      properties:
+        ID: { type: string }
+        Username: { type: string }
+        Name: { type: string }
+        Email: { type: string, format: email }
+        PasswordHash: { type: string }
+        CreatedAt: { type: string, format: date-time }
+        UpdatedAt: { type: string, format: date-time }
+
+    UserUpdateForm:
+      type: object
+      description: Any subset of these fields may be posted; only the fields present are changed.
+      properties:
+        name: { type: string }
+        email: { type: string, format: email }
+        password: { type: string }
+
+    Client:
+      type: object
+      properties:
+        ClientID: { type: string }
+        Name: { type: string }
+        ClientSecret: { type: string }
+        Trusted: { type: boolean }
+        CreatedAt: { type: string, format: date-time }
+
+    ClientUpdateForm:
+      type: object
+      description: Any subset of these fields may be posted; only the fields present are changed.
+      properties:
+        name: { type: string }
+        clientSecret: { type: string }
+        trusted: { type: string }
+
+    Image:
+      type: object
+      properties:
+        ID: { type: string }
+        URL: { type: string, description: The stored filename. }
+        Description: { type: string }
+        UserID: { type: string }
+        Album: { type: string }
+        CreatedAt: { type: string, format: date-time }
+        UpdatedAt: { type: string, format: date-time }
+
+    ImageSummary:
+      type: object
+      properties:
+        _id: { type: string }
+        description: { type: string }
+
+    Album:
+      type: object
+      properties:
+        ID: { type: string }
+        Name: { type: string }
+        Description: { type: string }
+        UserID: { type: string }
+        CreatedAt: { type: string, format: date-time }
+        UpdatedAt: { type: string, format: date-time }

@@ -1,0 +1,148 @@
+openapi: 3.1.0
+info:
+  title: photoprint-client
+  version: "1.0.0"
+  description: >
+    OAuth 2.0 client (relying party) that lets a signed-in gallery user pick photos
+    from their gallery and place a print order. Delegates authentication and photo
+    access to gallery-idp via the Authorization Code grant.
+servers:
+  - url: /
+    description: This server (whatever host/port you're browsing it from)
+tags:
+  - name: Photo printing
+    description: The OAuth login flow and the print-ordering pages it unlocks.
+paths:
+  /:
+    get:
+      operationId: index
+      tags: [Photo printing]
+      summary: Home page
+      responses:
+        "200":
+          description: Home page with a "Print Pictures From Gallery" button.
+          content:
+            text/html: { schema: { type: string } }
+
+  /photoprint:
+    post:
+      operationId: startAuthorization
+      tags: [Photo printing]
+      summary: Start the OAuth authorization request
+      description: >
+        Builds an authorization request for gallery-idp and redirects the browser
+        to it.
+      responses:
+        "302":
+          description: >
+            Redirect to gallery-idp's `/oauth/authorize` with `response_type=code`,
+            `client_id`, `redirect_uri` (this app's own `/callback`), and `scope`
+            in the query string.
+          headers:
+            Location: { schema: { type: string, format: uri } }
+
+  /callback:
+    get:
+      operationId: callback
+      tags: [Photo printing]
+      summary: Authorization callback
+      description: >
+        The `redirect_uri` gallery-idp sends the browser back to once the
+        authorization request completes. Exchanges the authorization code for an
+        access token and stores it on this app's session.
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema: { type: string }
+          description: The authorization code returned by gallery-idp, to be redeemed for an access token.
+      responses:
+        "302":
+          description: Redirect to `/selectphotos` once an access token has been obtained.
+          headers:
+            Location: { schema: { type: string, format: uri } }
+        "200":
+          description: Token exchange failed.
+          content:
+            text/plain:
+              schema:
+                type: string
+                description: '`Access Token Error: <details>`'
+
+  /selectphotos:
+    get:
+      operationId: selectPhotos
+      tags: [Photo printing]
+      summary: List the caller's gallery photos
+      description: >
+        Fetches the caller's photos from gallery-idp using the session's access
+        token and renders them for selection.
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: The caller's photos.
+          content:
+            text/html: { schema: { type: string } }
+        "502":
+          description: Could not load photos from gallery-idp.
+          content:
+            text/html: { schema: { type: string } }
+
+  /order:
+    post:
+      operationId: order
+      tags: [Photo printing]
+      summary: Review a print order
+      description: >
+        Builds the "review your order" page from the submitted photo selection.
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              description: >
+                Each field's key is the string form of an index into the caller's
+                session-selected photo list; field values are not read.
+              additionalProperties:
+                type: string
+      responses:
+        "200":
+          description: Order review page, with the selected photos, unit price, and total price.
+          content:
+            text/html: { schema: { type: string } }
+
+  /confirm:
+    post:
+      operationId: confirm
+      tags: [Photo printing]
+      summary: Confirm a print order
+      description: >
+        Renders the order-confirmation page. `name`, `address`, and `creditcard`
+        are present on the review page's form but are not read by this endpoint.
+      security:
+        - sessionCookie: []
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                address: { type: string }
+                creditcard: { type: string }
+      responses:
+        "200":
+          description: Order confirmation page.
+          content:
+            text/html: { schema: { type: string } }
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: photoprint.sid

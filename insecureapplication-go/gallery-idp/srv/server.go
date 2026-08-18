@@ -96,6 +96,13 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(web.Static))))
 	mux.Handle("GET /uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir(s.UploadsDir))))
 
+	// --- API docs (Scalar UI over the embedded OpenAPI spec; not part of
+	// the OAuth surface, so not dual-mounted under /oauth like the routes
+	// above -- see /token/introspect for the same treatment). ---
+	mux.HandleFunc("GET /api-docs", s.handleAPIDocs)
+	mux.Handle("GET /api-docs/scalar-standalone.v1.65.1.js",
+		http.StripPrefix("/api-docs/", http.FileServer(http.FS(scalarBundleFiles))))
+
 	// --- well-known browser/crawler probe paths: registered explicitly so
 	// they don't fall through to GET /'s handleIndex, which redirects a
 	// logged-in user to /photos/{username} -- these are requested
