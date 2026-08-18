@@ -96,5 +96,19 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(web.Static))))
 	mux.Handle("GET /uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir(s.UploadsDir))))
 
+	// --- well-known browser/crawler probe paths: registered explicitly so
+	// they don't fall through to GET /'s handleIndex, which redirects a
+	// logged-in user to /photos/{username} -- these are requested
+	// automatically (favicon lookups, iOS home-screen icons, robots.txt),
+	// not via user navigation, so that redirect fired as an unrelated
+	// side effect of unrelated page loads. ---
+	for _, p := range []string{"/favicon.ico", "/apple-touch-icon.png", "/apple-touch-icon-precomposed.png", "/robots.txt"} {
+		mux.HandleFunc("GET "+p, handleNoContent)
+	}
+
 	return mux
+}
+
+func handleNoContent(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNoContent)
 }
